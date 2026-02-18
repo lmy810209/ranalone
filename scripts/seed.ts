@@ -14,7 +14,7 @@ import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'ahwa-85b70' });
+  initializeApp();
 }
 
 const db = getFirestore();

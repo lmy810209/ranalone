@@ -14,7 +14,7 @@ import { googleAI } from '@genkit-ai/google-genai';
 // ── Init ───────────────────────────────────────────────────────────────────
 
 if (getApps().length === 0) {
-  initializeApp({ projectId: 'ahwa-85b70' });
+  initializeApp();
 }
 const db = getFirestore();
 
