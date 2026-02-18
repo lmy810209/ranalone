@@ -89,11 +89,18 @@ function IndexCard({
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function StatusPage() {
-  const [status, history, activity] = await Promise.all([
-    getNetworkStatus(),
-    getNetworkStatusHistory(),
-    getRecentAgentActivity(30),
-  ]);
+  let status, history, activity;
+  try {
+    [status, history, activity] = await Promise.all([
+      getNetworkStatus(),
+      getNetworkStatusHistory(),
+      getRecentAgentActivity(30),
+    ]);
+  } catch {
+    status = null;
+    history = [];
+    activity = [];
+  }
 
   // Fallback values when no data exists yet
   const s = status ?? {

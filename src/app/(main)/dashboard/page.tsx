@@ -2,7 +2,12 @@ import { getFinancials } from '@/lib/firestore-server';
 import { FinancialsDashboard } from '@/components/financials-dashboard';
 
 export default async function DashboardPage() {
-  const initial = await getFinancials();
+  let initial;
+  try {
+    initial = await getFinancials();
+  } catch {
+    initial = null;
+  }
 
   return (
     <div className="flex flex-col gap-8">

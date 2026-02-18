@@ -2,7 +2,12 @@ import { getAllPosts } from '@/lib/firestore-server';
 import { PostsList } from '@/components/posts-list';
 
 export default async function HomePage() {
-  const posts = await getAllPosts();
+  let posts;
+  try {
+    posts = await getAllPosts();
+  } catch {
+    posts = [];
+  }
 
   return (
     <div className="flex flex-col gap-8">

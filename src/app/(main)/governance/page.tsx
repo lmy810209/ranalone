@@ -2,7 +2,12 @@ import { getGovernanceLogs } from '@/lib/firestore-server';
 import { GovernanceLogsTable } from '@/components/governance-logs-table';
 
 export default async function GovernancePage() {
-  const logs = await getGovernanceLogs();
+  let logs;
+  try {
+    logs = await getGovernanceLogs();
+  } catch {
+    logs = [];
+  }
 
   return (
     <div className="flex flex-col gap-8">
