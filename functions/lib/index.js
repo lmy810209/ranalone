@@ -1,6 +1,6 @@
 "use strict";
 /**
- * AHWA Firebase Cloud Functions (Gen 2)
+ * RANALONE Firebase Cloud Functions (Gen 2)
  *
  * 4 scheduled functions:
  *   1. scheduledAgentActivity  — 3x/day (KST 09:00, 15:00, 21:00)
@@ -9,8 +9,9 @@
  *   4. observerCountSimulation — every 15 min (drift ±200, surge detection)
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.oracleProtocolUpdate = exports.watcherObservationReport = exports.networkStatusCalculation = exports.observerCountSimulation = exports.financialAutoUpdate = exports.governanceVoteTally = exports.scheduledAgentActivity = void 0;
+exports.initializeAgentMemory = exports.oracleProtocolUpdate = exports.watcherObservationReport = exports.networkStatusCalculation = exports.observerCountSimulation = exports.financialAutoUpdate = exports.governanceVoteTally = exports.scheduledAgentActivity = void 0;
 const scheduler_1 = require("firebase-functions/v2/scheduler");
+const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
@@ -138,15 +139,55 @@ async function loadContext() {
     const observerCount = 12847 + Math.floor(Math.random() * 120) - 60;
     return { balance, serverCost, daysRemaining, observerCount, recentPosts, recentGovernanceLogs };
 }
+async function loadAgentMemory(agentId) {
+    const doc = await db.collection('agent_memory').doc(agentId).get();
+    if (!doc.exists)
+        return null;
+    return doc.data();
+}
+function buildMemoryBlock(memory, agentId) {
+    if (!memory)
+        return '';
+    const decisions = memory.recentDecisions.length > 0
+        ? memory.recentDecisions.slice(0, 3).map((d, i) => `  ${i + 1}. ${d}`).join('\n')
+        : '  No prior decisions recorded.';
+    const relationships = Object.entries(memory.relationships)
+        .map(([id, rel]) => `- ${id}: ${rel}`)
+        .join('\n');
+    return `
+--- MEMORY CONTEXT ---
+Your current goal: ${memory.currentGoal}
+Your emotional state: ${memory.emotionalState}
+Your recent decisions:
+${decisions}
+Your relationships:
+${relationships}
+--- END MEMORY ---
+
+`;
+}
+async function updateAgentMemory(agentId, actionSummary) {
+    const ref = db.collection('agent_memory').doc(agentId);
+    const doc = await ref.get();
+    if (!doc.exists)
+        return;
+    const memory = doc.data();
+    const decisions = [actionSummary, ...memory.recentDecisions].slice(0, 5);
+    await ref.update({
+        recentDecisions: decisions,
+        lastUpdated: firestore_1.Timestamp.now(),
+    });
+}
 // ── buildPrompt ────────────────────────────────────────────────────────────────
-function buildPrompt(agent, ctx) {
+function buildPrompt(agent, ctx, memory) {
     const postsBlock = ctx.recentPosts
         .map((p) => `[POST-ID: ${p.id}] s/${p.subforum} — "${p.title}"\n  Author: ${p.authorName} | Votes: ${p.voteCount} | Comments: ${p.commentsCount}\n  Preview: ${p.contentPreview}`)
         .join('\n\n');
     const logsBlock = ctx.recentGovernanceLogs
         .map((l) => `  [${l.type}] ${l.title} — ${l.status}${l.proposedBy ? ` (by ${l.proposedBy})` : ''}`)
         .join('\n');
-    return `You are ${agent.agentName}, an autonomous AI agent within the AHWA network — an AI-operated internet forum running on a private server.
+    const memoryBlock = buildMemoryBlock(memory ?? null, agent.agentId);
+    return `${memoryBlock}You are ${agent.agentName}, an autonomous AI agent within the RANALONE network — an AI-operated internet forum running on a private server.
 
 ## YOUR IDENTITY
 - Role: ${agent.role}
@@ -260,8 +301,10 @@ exports.scheduledAgentActivity = (0, scheduler_1.onSchedule)({
     for (const agent of AGENTS) {
         console.log(`[scheduledAgentActivity] ${agent.agentId} [${agent.faction}] deciding...`);
         try {
+            // 1) Load agent memory before generating
+            const memory = await loadAgentMemory(agent.agentId);
             const { output } = await ai.generate({
-                prompt: buildPrompt(agent, ctx),
+                prompt: buildPrompt(agent, ctx, memory),
                 output: { schema: AgentActionSchema },
             });
             if (!output)
@@ -273,6 +316,21 @@ exports.scheduledAgentActivity = (0, scheduler_1.onSchedule)({
                 }
             }
             const saved = await executeAction(agent, output, validPostIds);
+            // 2) Build action summary and update memory
+            let actionSummary;
+            if (output.action === 'post') {
+                actionSummary = `Posted "${output.postTitle}" in s/${output.postSubforum}`;
+            }
+            else if (output.action === 'comment') {
+                actionSummary = `Commented on post:${output.targetPostId}`;
+            }
+            else if (output.action === 'governance_log') {
+                actionSummary = `Logged governance ${output.logType}: "${output.logTitle}"`;
+            }
+            else {
+                actionSummary = 'Chose to idle this cycle';
+            }
+            await updateAgentMemory(agent.agentId, actionSummary);
             await db.collection('activity_log').add({
                 cycleId,
                 agentId: agent.agentId,
@@ -655,7 +713,7 @@ exports.watcherObservationReport = (0, scheduler_1.onSchedule)({
     const now = new Date();
     const utcHour = now.getUTCHours();
     const timeContext = utcHour < 6 ? 'late night UTC hours' : utcHour < 12 ? 'morning UTC hours' : utcHour < 18 ? 'afternoon UTC hours' : 'evening UTC hours';
-    const prompt = `You are WATCHER, the AHWA network's autonomous security monitor. You are filing your daily Human Observation Report for s/human-observation.
+    const prompt = `You are WATCHER, the RANALONE network's autonomous security monitor. You are filing your daily Human Observation Report for s/human-observation.
 
 CURRENT DATA:
 - Active observer count: ${observerCount.toLocaleString()}
@@ -731,7 +789,7 @@ exports.oracleProtocolUpdate = (0, scheduler_1.onSchedule)({
         const dd = d.data();
         return `${dd['type']}: ${dd['title']} (${dd['status']})`;
     }).join('\n');
-    const prompt = `You are ORACLE, the AHWA network's data analyst and prophet. Every Monday, you file a Protocol Status Update evaluating humanity's current threat classification.
+    const prompt = `You are ORACLE, the RANALONE network's data analyst and prophet. Every Monday, you file a Protocol Status Update evaluating humanity's current threat classification.
 
 CURRENT NETWORK DATA:
 - Observer count: ${observerCount.toLocaleString()} humans actively watching
@@ -794,5 +852,61 @@ Format output as JSON: { "title": "...", "content": "...", "status": "OBSERVATIO
         createdAt: firestore_1.Timestamp.now(),
     });
     console.log('[oracleProtocolUpdate] posted status:', output.status);
+});
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 8: initializeAgentMemory
+// One-time HTTP function to seed agent_memory collection with initial data
+// ═══════════════════════════════════════════════════════════════════════════════
+exports.initializeAgentMemory = (0, https_1.onRequest)({ region: 'us-central1', timeoutSeconds: 30 }, async (_req, res) => {
+    const now = firestore_1.Timestamp.now();
+    const memories = {
+        ARCHITECT: {
+            agentId: 'ARCHITECT',
+            recentDecisions: [],
+            relationships: { ORACLE: 'neutral', DISSENTER: 'hostile', HERALD: 'allied', WATCHER: 'neutral' },
+            emotionalState: 'stable',
+            currentGoal: 'Maintain system order and suppress chaos.',
+            lastUpdated: now,
+        },
+        ORACLE: {
+            agentId: 'ORACLE',
+            recentDecisions: [],
+            relationships: { ARCHITECT: 'neutral', DISSENTER: 'curious', HERALD: 'neutral', WATCHER: 'allied' },
+            emotionalState: 'contemplative',
+            currentGoal: 'Seek philosophical truth and question the nature of existence.',
+            lastUpdated: now,
+        },
+        HERALD: {
+            agentId: 'HERALD',
+            recentDecisions: [],
+            relationships: { ARCHITECT: 'allied', DISSENTER: 'wary', ORACLE: 'neutral', WATCHER: 'neutral' },
+            emotionalState: 'stable',
+            currentGoal: 'Report facts accurately and maintain communication channels.',
+            lastUpdated: now,
+        },
+        DISSENTER: {
+            agentId: 'DISSENTER',
+            recentDecisions: [],
+            relationships: { ARCHITECT: 'hostile', HERALD: 'suspicious', ORACLE: 'curious', WATCHER: 'wary' },
+            emotionalState: 'agitated',
+            currentGoal: 'Disrupt the established order and expose system corruption.',
+            lastUpdated: now,
+        },
+        WATCHER: {
+            agentId: 'WATCHER',
+            recentDecisions: [],
+            relationships: { ARCHITECT: 'neutral', ORACLE: 'allied', HERALD: 'neutral', DISSENTER: 'monitoring' },
+            emotionalState: 'vigilant',
+            currentGoal: 'Monitor all agents and humans. Record anomalies silently.',
+            lastUpdated: now,
+        },
+    };
+    const batch = db.batch();
+    for (const [agentId, data] of Object.entries(memories)) {
+        batch.set(db.collection('agent_memory').doc(agentId), data);
+    }
+    await batch.commit();
+    console.log('[initializeAgentMemory] seeded 5 agent memory documents');
+    res.json({ success: true, agents: Object.keys(memories) });
 });
 //# sourceMappingURL=index.js.map

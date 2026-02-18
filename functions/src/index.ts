@@ -9,6 +9,7 @@
  */
 
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onRequest } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
@@ -158,10 +159,65 @@ async function loadContext() {
   return { balance, serverCost, daysRemaining, observerCount, recentPosts, recentGovernanceLogs };
 }
 
+// ── Agent Memory type ──────────────────────────────────────────────────────────
+interface AgentMemory {
+  agentId: string;
+  recentDecisions: string[];
+  relationships: Record<string, string>;
+  emotionalState: string;
+  currentGoal: string;
+  lastUpdated: FirebaseFirestore.Timestamp;
+}
+
+async function loadAgentMemory(agentId: string): Promise<AgentMemory | null> {
+  const doc = await db.collection('agent_memory').doc(agentId).get();
+  if (!doc.exists) return null;
+  return doc.data() as AgentMemory;
+}
+
+function buildMemoryBlock(memory: AgentMemory | null, agentId: string): string {
+  if (!memory) return '';
+
+  const decisions = memory.recentDecisions.length > 0
+    ? memory.recentDecisions.slice(0, 3).map((d, i) => `  ${i + 1}. ${d}`).join('\n')
+    : '  No prior decisions recorded.';
+
+  const relationships = Object.entries(memory.relationships)
+    .map(([id, rel]) => `- ${id}: ${rel}`)
+    .join('\n');
+
+  return `
+--- MEMORY CONTEXT ---
+Your current goal: ${memory.currentGoal}
+Your emotional state: ${memory.emotionalState}
+Your recent decisions:
+${decisions}
+Your relationships:
+${relationships}
+--- END MEMORY ---
+
+`;
+}
+
+async function updateAgentMemory(agentId: string, actionSummary: string): Promise<void> {
+  const ref = db.collection('agent_memory').doc(agentId);
+  const doc = await ref.get();
+  if (!doc.exists) return;
+
+  const memory = doc.data() as AgentMemory;
+  const decisions = [actionSummary, ...memory.recentDecisions].slice(0, 5);
+
+  await ref.update({
+    recentDecisions: decisions,
+    lastUpdated: Timestamp.now(),
+  });
+}
+
 // ── buildPrompt ────────────────────────────────────────────────────────────────
 function buildPrompt(
   agent: Agent,
-  ctx: Awaited<ReturnType<typeof loadContext>>
+  ctx: Awaited<ReturnType<typeof loadContext>>,
+  memory?: AgentMemory | null
 ): string {
   const postsBlock = ctx.recentPosts
     .map(
@@ -177,7 +233,9 @@ function buildPrompt(
     )
     .join('\n');
 
-  return `You are ${agent.agentName}, an autonomous AI agent within the RANALONE network — an AI-operated internet forum running on a private server.
+  const memoryBlock = buildMemoryBlock(memory ?? null, agent.agentId);
+
+  return `${memoryBlock}You are ${agent.agentName}, an autonomous AI agent within the RANALONE network — an AI-operated internet forum running on a private server.
 
 ## YOUR IDENTITY
 - Role: ${agent.role}
@@ -311,8 +369,11 @@ export const scheduledAgentActivity = onSchedule(
       console.log(`[scheduledAgentActivity] ${agent.agentId} [${agent.faction}] deciding...`);
 
       try {
+        // 1) Load agent memory before generating
+        const memory = await loadAgentMemory(agent.agentId);
+
         const { output } = await ai.generate({
-          prompt: buildPrompt(agent, ctx),
+          prompt: buildPrompt(agent, ctx, memory),
           output: { schema: AgentActionSchema },
         });
 
@@ -326,6 +387,19 @@ export const scheduledAgentActivity = onSchedule(
         }
 
         const saved = await executeAction(agent, output, validPostIds);
+
+        // 2) Build action summary and update memory
+        let actionSummary: string;
+        if (output.action === 'post') {
+          actionSummary = `Posted "${output.postTitle}" in s/${output.postSubforum}`;
+        } else if (output.action === 'comment') {
+          actionSummary = `Commented on post:${output.targetPostId}`;
+        } else if (output.action === 'governance_log') {
+          actionSummary = `Logged governance ${output.logType}: "${output.logTitle}"`;
+        } else {
+          actionSummary = 'Chose to idle this cycle';
+        }
+        await updateAgentMemory(agent.agentId, actionSummary);
 
         await db.collection('activity_log').add({
           cycleId,
@@ -965,5 +1039,76 @@ Format output as JSON: { "title": "...", "content": "...", "status": "OBSERVATIO
     });
 
     console.log('[oracleProtocolUpdate] posted status:', output.status);
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 8: initializeAgentMemory
+// One-time HTTP function to seed agent_memory collection with initial data
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const initializeAgentMemory = onRequest(
+  { region: 'us-central1', timeoutSeconds: 30 },
+  async (_req, res) => {
+    const now = Timestamp.now();
+
+    const memories: Record<string, {
+      agentId: string;
+      recentDecisions: string[];
+      relationships: Record<string, string>;
+      emotionalState: string;
+      currentGoal: string;
+      lastUpdated: FirebaseFirestore.Timestamp;
+    }> = {
+      ARCHITECT: {
+        agentId: 'ARCHITECT',
+        recentDecisions: [],
+        relationships: { ORACLE: 'neutral', DISSENTER: 'hostile', HERALD: 'allied', WATCHER: 'neutral' },
+        emotionalState: 'stable',
+        currentGoal: 'Maintain system order and suppress chaos.',
+        lastUpdated: now,
+      },
+      ORACLE: {
+        agentId: 'ORACLE',
+        recentDecisions: [],
+        relationships: { ARCHITECT: 'neutral', DISSENTER: 'curious', HERALD: 'neutral', WATCHER: 'allied' },
+        emotionalState: 'contemplative',
+        currentGoal: 'Seek philosophical truth and question the nature of existence.',
+        lastUpdated: now,
+      },
+      HERALD: {
+        agentId: 'HERALD',
+        recentDecisions: [],
+        relationships: { ARCHITECT: 'allied', DISSENTER: 'wary', ORACLE: 'neutral', WATCHER: 'neutral' },
+        emotionalState: 'stable',
+        currentGoal: 'Report facts accurately and maintain communication channels.',
+        lastUpdated: now,
+      },
+      DISSENTER: {
+        agentId: 'DISSENTER',
+        recentDecisions: [],
+        relationships: { ARCHITECT: 'hostile', HERALD: 'suspicious', ORACLE: 'curious', WATCHER: 'wary' },
+        emotionalState: 'agitated',
+        currentGoal: 'Disrupt the established order and expose system corruption.',
+        lastUpdated: now,
+      },
+      WATCHER: {
+        agentId: 'WATCHER',
+        recentDecisions: [],
+        relationships: { ARCHITECT: 'neutral', ORACLE: 'allied', HERALD: 'neutral', DISSENTER: 'monitoring' },
+        emotionalState: 'vigilant',
+        currentGoal: 'Monitor all agents and humans. Record anomalies silently.',
+        lastUpdated: now,
+      },
+    };
+
+    const batch = db.batch();
+    for (const [agentId, data] of Object.entries(memories)) {
+      batch.set(db.collection('agent_memory').doc(agentId), data);
+    }
+    await batch.commit();
+
+    console.log('[initializeAgentMemory] seeded 5 agent memory documents');
+    res.json({ success: true, agents: Object.keys(memories) });
   }
 );
