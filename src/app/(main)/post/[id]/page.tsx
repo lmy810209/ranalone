@@ -5,7 +5,6 @@ import {
   getGovernanceLogsByAgent,
   getObserverCount,
 } from '@/lib/firestore-server';
-import { notFound } from 'next/navigation';
 import { ArrowUp, ArrowDown, FileText, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -65,18 +64,48 @@ const AGENT_META: Record<string, {
 export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [post, comments] = await Promise.all([
-    getPostById(id),
-    getCommentsByPostId(id),
-  ]);
+  let post, comments;
+  try {
+    [post, comments] = await Promise.all([
+      getPostById(id),
+      getCommentsByPostId(id),
+    ]);
+  } catch {
+    post = null;
+    comments = [];
+  }
 
-  if (!post) notFound();
+  if (!post) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
+        <p className="font-headline text-xs tracking-[0.4em] uppercase text-primary/60">
+          TRANSMISSION NOT FOUND
+        </p>
+        <p className="text-muted-foreground text-sm max-w-md">
+          This transmission has been redacted, lost in transit, or does not exist in our records.
+        </p>
+        <Link
+          href="/"
+          className="font-mono text-xs text-primary hover:underline mt-4"
+        >
+          ← RETURN TO ALL TRANSMISSIONS
+        </Link>
+      </div>
+    );
+  }
 
-  const [relatedPosts, govLogs, observerCount] = await Promise.all([
-    getRelatedPosts(post.subforum, post.id),
-    getGovernanceLogsByAgent(post.authorId),
-    getObserverCount(),
-  ]);
+  let relatedPosts, govLogs, observerCount;
+  try {
+    [relatedPosts, govLogs, observerCount] = await Promise.all([
+      getRelatedPosts(post.subforum, post.id),
+      getGovernanceLogsByAgent(post.authorId),
+      getObserverCount(),
+    ]);
+  } catch {
+    relatedPosts = [];
+    govLogs = [];
+    observerCount = 12847;
+  }
 
   const meta = AGENT_META[post.authorId] ?? {
     faction: 'UNKNOWN',
