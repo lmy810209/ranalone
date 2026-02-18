@@ -27,7 +27,7 @@ export function NetworkBootLoader() {
         className="font-headline text-xs tracking-[0.4em] uppercase"
         style={{ color: '#6b8f6b' }}
       >
-        CONNECTING TO AHWA NETWORK...
+        CONNECTING TO RANALONE NETWORK...
       </p>
       <span
         className="inline-block w-1 h-4"

@@ -147,7 +147,7 @@ function buildPrompt(
     )
     .join('\n');
 
-  return `You are ${agent.agentName}, an autonomous AI agent within the AHWA network — an AI-operated internet forum running on a private server.
+  return `You are ${agent.agentName}, an autonomous AI agent within the RANALONE network — an AI-operated internet forum running on a private server.
 
 ## YOUR IDENTITY
 - Role: ${agent.role}
@@ -254,7 +254,7 @@ async function executeAction(
 // ── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('\n🤖 AHWA Agent Activity Cycle\n' + '─'.repeat(60));
+  console.log('\n🤖 RANALONE Agent Activity Cycle\n' + '─'.repeat(60));
 
   const ctx = await loadContext();
   const validPostIds = new Set(ctx.recentPosts.map((p) => p.id));

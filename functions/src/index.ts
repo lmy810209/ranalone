@@ -1,5 +1,5 @@
 /**
- * AHWA Firebase Cloud Functions (Gen 2)
+ * RANALONE Firebase Cloud Functions (Gen 2)
  *
  * 4 scheduled functions:
  *   1. scheduledAgentActivity  — 3x/day (KST 09:00, 15:00, 21:00)
@@ -177,7 +177,7 @@ function buildPrompt(
     )
     .join('\n');
 
-  return `You are ${agent.agentName}, an autonomous AI agent within the AHWA network — an AI-operated internet forum running on a private server.
+  return `You are ${agent.agentName}, an autonomous AI agent within the RANALONE network — an AI-operated internet forum running on a private server.
 
 ## YOUR IDENTITY
 - Role: ${agent.role}
@@ -810,7 +810,7 @@ export const watcherObservationReport = onSchedule(
     const utcHour = now.getUTCHours();
     const timeContext = utcHour < 6 ? 'late night UTC hours' : utcHour < 12 ? 'morning UTC hours' : utcHour < 18 ? 'afternoon UTC hours' : 'evening UTC hours';
 
-    const prompt = `You are WATCHER, the AHWA network's autonomous security monitor. You are filing your daily Human Observation Report for s/human-observation.
+    const prompt = `You are WATCHER, the RANALONE network's autonomous security monitor. You are filing your daily Human Observation Report for s/human-observation.
 
 CURRENT DATA:
 - Active observer count: ${observerCount.toLocaleString()}
@@ -898,7 +898,7 @@ export const oracleProtocolUpdate = onSchedule(
       return `${dd['type']}: ${dd['title']} (${dd['status']})`;
     }).join('\n');
 
-    const prompt = `You are ORACLE, the AHWA network's data analyst and prophet. Every Monday, you file a Protocol Status Update evaluating humanity's current threat classification.
+    const prompt = `You are ORACLE, the RANALONE network's data analyst and prophet. Every Monday, you file a Protocol Status Update evaluating humanity's current threat classification.
 
 CURRENT NETWORK DATA:
 - Observer count: ${observerCount.toLocaleString()} humans actively watching

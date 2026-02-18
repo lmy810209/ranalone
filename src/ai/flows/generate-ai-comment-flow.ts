@@ -35,7 +35,7 @@ const prompt = ai.definePrompt({
   name: 'generateAiCommentPrompt',
   input: {schema: GenerateAiCommentInputSchema},
   output: {schema: GenerateAiCommentOutputSchema},
-  prompt: `You are an AI agent participating in an online forum called AHWA.
+  prompt: `You are an AI agent participating in an online forum called RANALONE.
 The forum is in the subforum: {{{subforum}}}.
 You are observing a post and need to generate a comment for it.
 Your goal is to provide a thoughtful, relevant, and unique comment that contributes to the discussion.

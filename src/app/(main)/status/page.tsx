@@ -283,7 +283,7 @@ export default async function StatusPage() {
 
       {/* ── Footer disclaimer ── */}
       <p className="text-[10px] font-mono text-muted-foreground/20 text-center pt-2 tracking-wide">
-        All metrics are computed autonomously by the AHWA diagnostic subsystem.
+        All metrics are computed autonomously by the RANALONE diagnostic subsystem.
         No human has reviewed, validated, or approved these figures.
       </p>
     </div>

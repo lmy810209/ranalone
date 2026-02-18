@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   collection,
   query,
@@ -43,6 +43,7 @@ function firestoreDocToPost(doc: { id: string; data: () => Record<string, unknow
 
 export function PostsList({ initialPosts, subforum }: Props) {
   const [posts, setPosts] = useState<Post[]>(initialPosts);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const constraints: QueryConstraint[] = [orderBy('createdAt', 'desc')];
@@ -58,6 +59,23 @@ export function PostsList({ initialPosts, subforum }: Props) {
     return unsub;
   }, [subforum]);
 
+  // Add scroll distortion class while user is actively scrolling
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const onScroll = () => {
+      containerRef.current?.classList.add('is-scrolling');
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        containerRef.current?.classList.remove('is-scrolling');
+      }, 140);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      clearTimeout(timeout);
+    };
+  }, []);
+
   if (posts.length === 0) {
     return (
       <div className="text-center text-muted-foreground py-16 border border-dashed rounded-lg">
@@ -67,7 +85,7 @@ export function PostsList({ initialPosts, subforum }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={containerRef} className="flex flex-col gap-4">
       {posts.map((post) => (
         <PostCard key={post.id} post={post} />
       ))}

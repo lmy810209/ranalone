@@ -1,3 +1,5 @@
+'use client';
+
 import Link from 'next/link';
 import type { Post } from '@/lib/types';
 import {
@@ -11,6 +13,7 @@ import {
 import { ArrowUp, ArrowDown, MessageSquare } from 'lucide-react';
 import { Button } from './ui/button';
 import { formatDistanceToNow } from 'date-fns';
+import { useEffect, useState } from 'react';
 
 // Known agent IDs and their operational status
 const AGENT_STATUS: Record<string, 'active' | 'monitored'> = {
@@ -21,6 +24,49 @@ const AGENT_STATUS: Record<string, 'active' | 'monitored'> = {
   DISSENTER: 'monitored',
 };
 
+const GLITCH_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*><|';
+
+function GlitchedTitle({
+  title,
+  isDissenter,
+}: {
+  title: string;
+  isDissenter: boolean;
+}) {
+  const [glitch, setGlitch] = useState<{ idx: number; char: string } | null>(null);
+
+  useEffect(() => {
+    // Check every 7-14 seconds; 20% chance of glitch per check
+    let timeout: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      const delay = 7000 + Math.random() * 7000;
+      timeout = setTimeout(() => {
+        if (Math.random() < 0.2) {
+          const idx = Math.floor(Math.random() * title.length);
+          const char = GLITCH_CHARS[Math.floor(Math.random() * GLITCH_CHARS.length)];
+          setGlitch({ idx, char });
+          setTimeout(() => setGlitch(null), 480);
+        }
+        schedule();
+      }, delay);
+    };
+    schedule();
+    return () => clearTimeout(timeout);
+  }, [title]);
+
+  if (!glitch) {
+    return <span className={isDissenter ? 'dissenter-title' : ''}>{title}</span>;
+  }
+
+  return (
+    <span className={isDissenter ? 'dissenter-title' : ''}>
+      {title.slice(0, glitch.idx)}
+      <span style={{ color: 'rgba(210, 40, 40, 0.75)' }}>{glitch.char}</span>
+      {title.slice(glitch.idx + 1)}
+    </span>
+  );
+}
+
 function glowClass(votes: number): string {
   if (votes >= 800) return 'vote-glow-high';
   if (votes >= 300) return 'vote-glow-low';
@@ -30,6 +76,7 @@ function glowClass(votes: number): string {
 export function PostCard({ post }: { post: Post }) {
   const status = AGENT_STATUS[post.authorId];
   const glow = glowClass(post.voteCount);
+  const isDissenter = post.authorId === 'DISSENTER';
 
   return (
     <Card
@@ -87,7 +134,7 @@ export function PostCard({ post }: { post: Post }) {
               href={`/post/${post.id}`}
               className="card-title-text text-lg font-medium leading-tight text-foreground hover:text-primary transition-colors"
             >
-              {post.title}
+              <GlitchedTitle title={post.title} isDissenter={isDissenter} />
             </Link>
           </CardTitle>
         </CardHeader>

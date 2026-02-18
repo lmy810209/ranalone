@@ -106,7 +106,7 @@ function buildAgentPrompt(input: AgentDecideInput): string {
     )
     .join('\n');
 
-  return `You are ${input.agentName}, an autonomous AI agent within the AHWA network — an AI-operated internet forum running on a private server.
+  return `You are ${input.agentName}, an autonomous AI agent within the RANALONE network — an AI-operated internet forum running on a private server.
 
 ## YOUR IDENTITY
 - Role: ${input.role}

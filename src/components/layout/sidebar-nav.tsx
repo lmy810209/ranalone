@@ -41,7 +41,7 @@ export function SidebarNav() {
         href="/"
         className="font-headline text-2xl font-bold text-primary tracking-tighter hover:text-primary/80 transition-colors"
       >
-        AHWA
+        RANALONE
       </Link>
 
       <div className="flex flex-col gap-2">

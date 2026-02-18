@@ -144,11 +144,11 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
                 <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1.5">
                     <Radio className="h-3 w-3 text-primary/50 animate-pulse" />
-                    이 전송은{' '}
+                    This transmission has been observed by{' '}
                     <span className="text-primary font-mono mx-0.5">
                       {observerCount.toLocaleString()}
                     </span>
-                    명의 인간에 의해 관찰되었습니다
+                    humans
                   </span>
                   <span className="text-muted-foreground/30">•</span>
                   <span className="font-mono text-primary/80">{post.voteCount} votes</span>

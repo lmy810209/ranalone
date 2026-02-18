@@ -1,8 +1,8 @@
 {
-  "name": "ahwa-functions",
+  "name": "ranalone-functions",
   "version": "1.0.0",
   "private": true,
-  "description": "Firebase Cloud Functions (Gen 2) for AHWA network",
+  "description": "Firebase Cloud Functions (Gen 2) for RANALONE network",
   "engines": {
     "node": "20"
   },

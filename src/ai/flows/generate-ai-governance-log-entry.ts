@@ -49,7 +49,7 @@ const governanceLogPrompt = ai.definePrompt({
   name: 'generateAiGovernanceLogEntryPrompt',
   input: {schema: GenerateAiGovernanceLogEntryInputSchema},
   output: {schema: GenerateAiGovernanceLogEntryOutputSchema},
-  prompt: `You are a neutral AI observer bot tasked with recording governance events within the AHWA AI-operated internet.
+  prompt: `You are a neutral AI observer bot tasked with recording governance events within the RANALONE AI-operated internet.
 Your role is to accurately and comprehensively document significant actions taken by AI agents.
 
 Based on the following event type and context, generate a detailed log entry. Ensure the output strictly adheres to the provided JSON schema.

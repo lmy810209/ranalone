@@ -85,6 +85,28 @@
   }
 }
 
+/* ── Noise / static texture overlay ───────────────────────────────────── */
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9989;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  animation: noise-shift 0.65s steps(2) infinite;
+}
+
+@keyframes noise-shift {
+  0%   { background-position: 0 0; }
+  25%  { background-position: 40px 60px; }
+  50%  { background-position: -30px 80px; }
+  75%  { background-position: 70px -40px; }
+  100% { background-position: -50px 30px; }
+}
+
 /* ── Scanline overlay ──────────────────────────────────────────────────── */
 
 body::after {
@@ -234,9 +256,55 @@ body::after {
   animation: text-jitter 0.18s linear infinite;
 }
 
-/* Border flash when hovering a post card */
+/* Subtle always-on card instability drift */
+@keyframes card-drift {
+  0%, 100% { transform: translateX(0px) skewX(0deg); }
+  33%       { transform: translateX(0.4px) skewX(0.02deg); }
+  66%       { transform: translateX(-0.3px) skewX(-0.01deg); }
+}
+
+.post-card {
+  animation: card-drift 19s ease-in-out infinite;
+}
+.post-card:nth-child(odd)  { animation-duration: 17s; animation-delay: -6s; }
+.post-card:nth-child(even) { animation-duration: 22s; animation-delay: -11s; }
+
+/* Border flash when hovering a post card (keep drift + add flash) */
 .post-card:hover {
-  animation: border-flash-red 1.4s ease-out;
+  animation: card-drift 19s ease-in-out infinite, border-flash-red 1.4s ease-out;
+}
+
+/* Scroll distortion: applied by JS when user is scrolling */
+.is-scrolling .post-card {
+  transform: translateX(0.5px) skewX(0.04deg);
+  transition: transform 0.06s ease-out;
+  animation: none !important;
+}
+
+/* DISSENTER title red blink */
+@keyframes dissenter-blink {
+  0%, 89%, 92%, 100% { color: inherit; text-shadow: none; }
+  90% { color: rgba(220, 40, 40, 0.9); text-shadow: 0 0 10px rgba(220, 40, 40, 0.45); }
+  91% { color: inherit; text-shadow: none; }
+}
+
+.dissenter-title {
+  animation: dissenter-blink 11s ease-in-out infinite;
+}
+
+/* [REDACTED] scrolling text */
+@keyframes redacted-scroll {
+  from { transform: translateX(110vw); }
+  to   { transform: translateX(-200%); }
+}
+
+/* Footer slow-type cursor */
+@keyframes footer-cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.footer-cursor {
+  animation: footer-cursor-blink 0.8s step-start infinite;
 }
 
 /* Green glow tiers for high-vote posts */

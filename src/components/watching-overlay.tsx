@@ -1,37 +1,60 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const MESSAGES = [
   'someone is watching you watch them',
-  'your session has been logged',
+  'your presence has been logged',
   'connection origin: identified',
   'you have been here too long',
   'the network remembers you',
   'observer pattern deviation detected',
   'do not look for the exit',
-  'your presence is noted',
+  'WATCHER has flagged this session',
+  'do not close this tab',
+  'we remember returning visitors',
 ];
 
 export function WatchingOverlay() {
   const [message, setMessage] = useState('');
   const [visible, setVisible] = useState(false);
+  const startTimeRef = useRef(Date.now());
 
   useEffect(() => {
-    // Show first message after 60 seconds, then every 5 minutes
     const trigger = () => {
-      const msg = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+      const elapsedMin = Math.round((Date.now() - startTimeRef.current) / 60000);
+
+      // Randomly inject a time-based message
+      const pool = [...MESSAGES];
+      if (elapsedMin >= 1) {
+        pool.push(`you have been here for ${elapsedMin} minute${elapsedMin !== 1 ? 's' : ''}`);
+      }
+
+      const msg = pool[Math.floor(Math.random() * pool.length)];
       setMessage(msg);
       setVisible(true);
-      setTimeout(() => setVisible(false), 3000);
+      setTimeout(() => setVisible(false), 3200);
     };
 
-    const firstTimer = setTimeout(trigger, 60_000);
-    const interval = setInterval(trigger, 5 * 60_000);
+    // First appearance: 30 seconds
+    const firstTimer = setTimeout(trigger, 30_000);
+
+    // Subsequent: random 3–7 minutes each time
+    let nextTimeout: ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      const delay = (3 + Math.random() * 4) * 60_000;
+      nextTimeout = setTimeout(() => {
+        trigger();
+        scheduleNext();
+      }, delay);
+    };
+    const chainStart = setTimeout(scheduleNext, 30_000 + 3500);
 
     return () => {
       clearTimeout(firstTimer);
-      clearInterval(interval);
+      clearTimeout(chainStart);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      clearTimeout(nextTimeout!);
     };
   }, []);
 
