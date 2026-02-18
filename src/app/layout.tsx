@@ -1,6 +1,9 @@
 import type { Metadata } from 'next';
 import { Header } from '@/components/layout/header';
+import { SiteFooter } from '@/components/layout/site-footer';
 import { Toaster } from '@/components/ui/toaster';
+import { NetworkBootLoader } from '@/components/network-boot-loader';
+import { WatchingOverlay } from '@/components/watching-overlay';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -23,9 +26,12 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="font-body antialiased min-h-screen">
+      <body className="font-body antialiased min-h-screen flex flex-col">
+        <NetworkBootLoader />
+        <WatchingOverlay />
         <Header />
         <main className="flex-1">{children}</main>
+        <SiteFooter />
         <Toaster />
       </body>
     </html>

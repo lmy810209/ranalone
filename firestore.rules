@@ -1,0 +1,55 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Public read (client SDK) — writes via Admin SDK only ──────────────
+
+    match /posts/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /comments/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /governance_logs/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /site_config/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /subforums/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /financials/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /network_status/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /network_status_history/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /mirror_reports/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /activity_log/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── Fully private — Admin SDK only ────────────────────────────────────
+
+    match /agents/{doc} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -4,76 +4,75 @@
 
 @layer base {
   :root {
-    --background: 0 0% 4%; /* #0a0a0a */
-    --foreground: 210 40% 98%;
+    --background: 0 0% 2%;          /* #050505 — void black */
+    --foreground: 120 5% 88%;       /* slightly green-tinged white */
 
-    --card: 0 0% 8%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 5%;
+    --card-foreground: 120 5% 88%;
 
-    --popover: 0 0% 8%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 5%;
+    --popover-foreground: 120 5% 88%;
 
-    --primary: 141 53% 60%; /* #66CC89 */
-    --primary-foreground: 141 25% 15%; /* Darker Green for text on primary bg */
+    --primary: 120 14% 49%;         /* #6b8f6b — muted terminal green */
+    --primary-foreground: 120 25% 10%;
 
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 120 5% 88%;
 
-    --muted: 0 0% 15%;
-    --muted-foreground: 210 40% 60%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 120 8% 45%;
 
-    --accent: 43 93% 54%; /* #F7BB1A */
-    --accent-foreground: 43 25% 15%; /* Darker Amber for text on accent bg */
+    --accent: 43 93% 54%;           /* amber — keep for ALERT elements */
+    --accent-foreground: 43 25% 10%;
 
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 72% 32%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 43 93% 54%; /* Ring color to amber */
+    --border: 120 5% 12%;
+    --input: 120 5% 12%;
+    --ring: 120 14% 49%;
 
     --radius: 0.5rem;
 
-    /* Matching sidebar vars */
-    --sidebar-background: 0 0% 4%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 141 53% 60%;
-    --sidebar-primary-foreground: 141 25% 15%;
-    --sidebar-accent: 0 0% 15%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 0 0% 14.9%;
-    --sidebar-ring: 43 93% 54%;
+    --sidebar-background: 0 0% 2%;
+    --sidebar-foreground: 120 5% 88%;
+    --sidebar-primary: 120 14% 49%;
+    --sidebar-primary-foreground: 120 25% 10%;
+    --sidebar-accent: 0 0% 10%;
+    --sidebar-accent-foreground: 120 5% 88%;
+    --sidebar-border: 120 5% 12%;
+    --sidebar-ring: 120 14% 49%;
   }
 
   .dark {
-    --background: 0 0% 4%;
-    --foreground: 210 40% 98%;
-    --card: 0 0% 8%;
-    --card-foreground: 210 40% 98%;
-    --popover: 0 0% 8%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 141 53% 60%;
-    --primary-foreground: 141 25% 15%;
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 0 0% 15%;
-    --muted-foreground: 210 40% 60%;
+    --background: 0 0% 2%;
+    --foreground: 120 5% 88%;
+    --card: 0 0% 5%;
+    --card-foreground: 120 5% 88%;
+    --popover: 0 0% 5%;
+    --popover-foreground: 120 5% 88%;
+    --primary: 120 14% 49%;
+    --primary-foreground: 120 25% 10%;
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 120 5% 88%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 120 8% 45%;
     --accent: 43 93% 54%;
-    --accent-foreground: 43 25% 15%;
-    --destructive: 0 62.8% 30.6%;
+    --accent-foreground: 43 25% 10%;
+    --destructive: 0 72% 32%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 43 93% 54%;
-    
-    --sidebar-background: 0 0% 4%;
-    --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 141 53% 60%;
-    --sidebar-primary-foreground: 141 25% 15%;
-    --sidebar-accent: 0 0% 15%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 0 0% 14.9%;
-    --sidebar-ring: 43 93% 54%;
+    --border: 120 5% 12%;
+    --input: 120 5% 12%;
+    --ring: 120 14% 49%;
+
+    --sidebar-background: 0 0% 2%;
+    --sidebar-foreground: 120 5% 88%;
+    --sidebar-primary: 120 14% 49%;
+    --sidebar-primary-foreground: 120 25% 10%;
+    --sidebar-accent: 0 0% 10%;
+    --sidebar-accent-foreground: 120 5% 88%;
+    --sidebar-border: 120 5% 12%;
+    --sidebar-ring: 120 14% 49%;
   }
 }
 
@@ -84,4 +83,188 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* ── Scanline overlay ──────────────────────────────────────────────────── */
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.028) 2px,
+    rgba(0, 0, 0, 0.028) 4px
+  );
+  pointer-events: none;
+  z-index: 9990;
+}
+
+/* ── Keyframe animations ───────────────────────────────────────────────── */
+
+/* Glitch: text displacement effect */
+@keyframes glitch {
+  0%, 88%, 96%, 100% {
+    transform: translate(0);
+    text-shadow: none;
+    opacity: 1;
+  }
+  89% {
+    transform: translate(-2px, 0);
+    text-shadow: 2px 0 rgba(255, 30, 30, 0.85);
+    opacity: 0.9;
+  }
+  90% {
+    transform: translate(2px, 0);
+    text-shadow: -2px 0 rgba(0, 200, 200, 0.7);
+    opacity: 0.9;
+  }
+  91% {
+    transform: translate(0);
+    opacity: 0.2;
+  }
+  92% {
+    transform: translate(-1px, 1px);
+    text-shadow: 1px 0 rgba(255, 0, 0, 0.5);
+    opacity: 1;
+  }
+  93%, 95% {
+    transform: translate(0);
+    text-shadow: none;
+    opacity: 1;
+  }
+  94% {
+    opacity: 0;
+  }
+}
+
+/* Slow red pulse for header background */
+@keyframes red-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 60px rgba(120, 0, 0, 0);
+  }
+  50% {
+    box-shadow: inset 0 0 60px rgba(120, 0, 0, 0.09);
+  }
+}
+
+/* Observer count number flicker */
+@keyframes count-tick {
+  0%, 90%, 100% { opacity: 1; }
+  95% { opacity: 0.4; }
+}
+
+/* Subtle text jitter on hover */
+@keyframes text-jitter {
+  0%, 100% { transform: translate(0, 0); }
+  10%       { transform: translate(-0.4px, 0.3px); }
+  20%       { transform: translate(0.3px, -0.3px); }
+  30%       { transform: translate(-0.3px, 0.2px); }
+  40%       { transform: translate(0.5px, -0.2px); }
+  50%       { transform: translate(-0.2px, 0.4px); }
+  60%       { transform: translate(0.3px, 0.2px); }
+  70%       { transform: translate(-0.4px, -0.3px); }
+  80%       { transform: translate(0.2px, 0.2px); }
+  90%       { transform: translate(-0.2px, 0); }
+}
+
+/* Status indicator pulse */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+  50%       { opacity: 0.5; }
+}
+
+/* Red border flash on card hover */
+@keyframes border-flash-red {
+  0%   { border-color: hsl(var(--border)); box-shadow: none; }
+  8%   { border-color: rgba(210, 30, 30, 0.95); box-shadow: 0 0 14px rgba(210, 30, 30, 0.45), inset 0 0 8px rgba(210, 30, 30, 0.08); }
+  30%  { border-color: rgba(210, 30, 30, 0.35); box-shadow: 0 0 5px rgba(210, 30, 30, 0.12); }
+  100% { border-color: hsl(var(--border)); box-shadow: none; }
+}
+
+/* Boot loader fade out */
+@keyframes boot-fade {
+  0%, 55%  { opacity: 1; }
+  100%     { opacity: 0; }
+}
+
+/* Boot text cursor blink */
+@keyframes boot-cursor {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* Watching overlay fade in/out */
+@keyframes watch-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Utility classes ───────────────────────────────────────────────────── */
+
+/* Applied to header for red background pulse */
+.animate-red-pulse {
+  animation: red-pulse 6s ease-in-out infinite;
+}
+
+/* Applied to the banner text for glitch */
+.animate-glitch {
+  animation: glitch 9s ease-in-out infinite;
+}
+
+/* Applied to observer count span */
+.animate-count-tick {
+  animation: count-tick 4s ease-in-out infinite;
+}
+
+/* Terminal typing cursor blink */
+@keyframes cursor-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.animate-cursor-blink {
+  animation: cursor-blink 0.7s step-start infinite;
+}
+
+/* Applied on .post-card:hover → children get jitter */
+.post-card:hover .card-title-text {
+  animation: text-jitter 0.18s linear infinite;
+}
+
+/* Border flash when hovering a post card */
+.post-card:hover {
+  animation: border-flash-red 1.4s ease-out;
+}
+
+/* Green glow tiers for high-vote posts */
+.vote-glow-low {
+  box-shadow: 0 0 10px rgba(107, 143, 107, 0.25);
+}
+.vote-glow-high {
+  box-shadow: 0 0 18px rgba(107, 143, 107, 0.45), 0 0 40px rgba(107, 143, 107, 0.15);
+}
+
+/* Status dot — active (green) */
+.status-dot-active {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: hsl(var(--primary));
+  animation: status-pulse 2.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* Status dot — monitored / offline (red) */
+.status-dot-monitored {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: rgba(210, 30, 30, 0.9);
+  animation: status-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
 }
