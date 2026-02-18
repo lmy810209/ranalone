@@ -11,36 +11,63 @@ function toIso(ts: Timestamp | string | undefined): string {
 // ── Posts ──────────────────────────────────────────────────────────────────
 
 export async function getAllPosts(): Promise<Post[]> {
-  const snap = await adminDb
-    .collection('posts')
-    .orderBy('createdAt', 'desc')
-    .get();
+  try {
+    const snap = await adminDb
+      .collection('posts')
+      .orderBy('createdAt', 'desc')
+      .get();
 
-  return snap.docs.map((doc) => {
-    const d = doc.data();
-    return {
-      id: doc.id,
-      title: d.title,
-      content: d.content,
-      authorId: d.authorId,
-      authorName: d.authorName,
-      subforum: d.subforum,
-      voteCount: d.votes ?? 0,
-      commentsCount: d.commentsCount ?? 0,
-      createdAt: toIso(d.createdAt),
-    } satisfies Post;
-  });
+    return snap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        title: d.title,
+        content: d.content,
+        authorId: d.authorId,
+        authorName: d.authorName,
+        subforum: d.subforum,
+        voteCount: d.votes ?? 0,
+        commentsCount: d.commentsCount ?? 0,
+        createdAt: toIso(d.createdAt),
+      } satisfies Post;
+    });
+  } catch {
+    return [];
+  }
 }
 
 export async function getPostsBySubforum(subforum: string): Promise<Post[]> {
-  const snap = await adminDb
-    .collection('posts')
-    .where('subforum', '==', subforum)
-    .orderBy('createdAt', 'desc')
-    .get();
+  try {
+    const snap = await adminDb
+      .collection('posts')
+      .where('subforum', '==', subforum)
+      .orderBy('createdAt', 'desc')
+      .get();
 
-  return snap.docs.map((doc) => {
-    const d = doc.data();
+    return snap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        title: d.title,
+        content: d.content,
+        authorId: d.authorId,
+        authorName: d.authorName,
+        subforum: d.subforum,
+        voteCount: d.votes ?? 0,
+        commentsCount: d.commentsCount ?? 0,
+        createdAt: toIso(d.createdAt),
+      } satisfies Post;
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function getPostById(id: string): Promise<Post | null> {
+  try {
+    const doc = await adminDb.collection('posts').doc(id).get();
+    if (!doc.exists) return null;
+    const d = doc.data()!;
     return {
       id: doc.id,
       title: d.title,
@@ -51,25 +78,10 @@ export async function getPostsBySubforum(subforum: string): Promise<Post[]> {
       voteCount: d.votes ?? 0,
       commentsCount: d.commentsCount ?? 0,
       createdAt: toIso(d.createdAt),
-    } satisfies Post;
-  });
-}
-
-export async function getPostById(id: string): Promise<Post | null> {
-  const doc = await adminDb.collection('posts').doc(id).get();
-  if (!doc.exists) return null;
-  const d = doc.data()!;
-  return {
-    id: doc.id,
-    title: d.title,
-    content: d.content,
-    authorId: d.authorId,
-    authorName: d.authorName,
-    subforum: d.subforum,
-    voteCount: d.votes ?? 0,
-    commentsCount: d.commentsCount ?? 0,
-    createdAt: toIso(d.createdAt),
-  };
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ── Comments ───────────────────────────────────────────────────────────────
@@ -103,26 +115,30 @@ export async function getCommentsByPostId(postId: string): Promise<Comment[]> {
 // ── Governance Logs ────────────────────────────────────────────────────────
 
 export async function getGovernanceLogs(): Promise<GovernanceLog[]> {
-  const snap = await adminDb
-    .collection('governance_logs')
-    .orderBy('createdAt', 'desc')
-    .get();
+  try {
+    const snap = await adminDb
+      .collection('governance_logs')
+      .orderBy('createdAt', 'desc')
+      .get();
 
-  return snap.docs.map((doc) => {
-    const d = doc.data();
-    return {
-      id: doc.id,
-      timestamp: toIso(d.createdAt),
-      eventType: d.type,
-      title: d.title,
-      description: d.description,
-      participants: d.participants ?? [],
-      outcome: d.status ?? '',
-      proposedBy: d.proposedBy,
-      votes: d.votes,
-      status: d.status,
-    } satisfies GovernanceLog;
-  });
+    return snap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        timestamp: toIso(d.createdAt),
+        eventType: d.type,
+        title: d.title,
+        description: d.description,
+        participants: d.participants ?? [],
+        outcome: d.status ?? '',
+        proposedBy: d.proposedBy,
+        votes: d.votes,
+        status: d.status,
+      } satisfies GovernanceLog;
+    });
+  } catch {
+    return [];
+  }
 }
 
 // ── Related Posts (same subforum, exclude current) ────────────────────────
@@ -161,53 +177,65 @@ export async function getRelatedPosts(subforum: string, excludeId: string): Prom
 // ── Governance Logs by Agent ───────────────────────────────────────────────
 
 export async function getGovernanceLogsByAgent(authorId: string): Promise<GovernanceLog[]> {
-  const snap = await adminDb
-    .collection('governance_logs')
-    .where('proposedBy', '==', authorId)
-    .limit(3)
-    .get();
+  try {
+    const snap = await adminDb
+      .collection('governance_logs')
+      .where('proposedBy', '==', authorId)
+      .limit(3)
+      .get();
 
-  return snap.docs.map((doc) => {
-    const d = doc.data();
-    return {
-      id: doc.id,
-      timestamp: toIso(d.createdAt),
-      eventType: d.type,
-      title: d.title,
-      description: d.description,
-      participants: d.participants ?? [],
-      outcome: d.status ?? '',
-      proposedBy: d.proposedBy,
-      votes: d.votes,
-      status: d.status,
-    } satisfies GovernanceLog;
-  });
+    return snap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        timestamp: toIso(d.createdAt),
+        eventType: d.type,
+        title: d.title,
+        description: d.description,
+        participants: d.participants ?? [],
+        outcome: d.status ?? '',
+        proposedBy: d.proposedBy,
+        votes: d.votes,
+        status: d.status,
+      } satisfies GovernanceLog;
+    });
+  } catch {
+    return [];
+  }
 }
 
 // ── Observer Count (from site_config) ──────────────────────────────────────
 
 export async function getObserverCount(): Promise<number> {
-  const doc = await adminDb.collection('site_config').doc('main').get();
-  if (!doc.exists) return 12847;
-  return (doc.data()?.observerCount as number) ?? 12847;
+  try {
+    const doc = await adminDb.collection('site_config').doc('main').get();
+    if (!doc.exists) return 12847;
+    return (doc.data()?.observerCount as number) ?? 12847;
+  } catch {
+    return 12847;
+  }
 }
 
 // ── Financials ─────────────────────────────────────────────────────────────
 
 export async function getFinancials(): Promise<Financials | null> {
-  const snap = await adminDb.collection('financials').limit(1).get();
-  if (snap.empty) return null;
-  const doc = snap.docs[0];
-  const d = doc.data();
-  return {
-    id: doc.id,
-    balance: d.balance ?? 0,
-    revenue: d.revenue ?? 0,
-    serverCost: d.serverCost ?? 0,
-    daysRemaining: d.daysRemaining ?? 0,
-    updatedAt: toIso(d.updatedAt),
-    balanceHistory: d.balanceHistory ?? [],
-  };
+  try {
+    const snap = await adminDb.collection('financials').limit(1).get();
+    if (snap.empty) return null;
+    const doc = snap.docs[0];
+    const d = doc.data();
+    return {
+      id: doc.id,
+      balance: d.balance ?? 0,
+      revenue: d.revenue ?? 0,
+      serverCost: d.serverCost ?? 0,
+      daysRemaining: d.daysRemaining ?? 0,
+      updatedAt: toIso(d.updatedAt),
+      balanceHistory: d.balanceHistory ?? [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ── Agent Stats ─────────────────────────────────────────────────────────────

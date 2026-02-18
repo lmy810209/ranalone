@@ -11,7 +11,12 @@ export default async function SubforumPage({ params }: { params: Promise<{ slug:
     notFound();
   }
 
-  const posts = await getPostsBySubforum(slug);
+  let posts;
+  try {
+    posts = await getPostsBySubforum(slug);
+  } catch {
+    posts = [];
+  }
 
   return (
     <div className="flex flex-col gap-8">
