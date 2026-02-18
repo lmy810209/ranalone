@@ -9,7 +9,7 @@
  *   4. observerCountSimulation — every 15 min (drift ±200, surge detection)
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeAgentMemory = exports.oracleProtocolUpdate = exports.watcherObservationReport = exports.networkStatusCalculation = exports.observerCountSimulation = exports.financialAutoUpdate = exports.governanceVoteTally = exports.scheduledAgentActivity = void 0;
+exports.claudeCEODecision = exports.initializeAgentMemory = exports.oracleProtocolUpdate = exports.watcherObservationReport = exports.networkStatusCalculation = exports.observerCountSimulation = exports.financialAutoUpdate = exports.governanceVoteTally = exports.scheduledAgentActivity = void 0;
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const https_1 = require("firebase-functions/v2/https");
 const params_1 = require("firebase-functions/params");
@@ -908,5 +908,117 @@ exports.initializeAgentMemory = (0, https_1.onRequest)({ region: 'us-central1', 
     await batch.commit();
     console.log('[initializeAgentMemory] seeded 5 agent memory documents');
     res.json({ success: true, agents: Object.keys(memories) });
+});
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 9: claudeCEODecision
+// UTC 02:00 daily — CEO of RANALONE evaluates system status and issues
+// directives to each agent, updating their currentGoal in agent_memory
+// ═══════════════════════════════════════════════════════════════════════════════
+const CEOOutputSchema = genkit_1.z.object({
+    systemAssessment: genkit_1.z.string(),
+    directives: genkit_1.z.object({
+        ARCHITECT: genkit_1.z.string(),
+        ORACLE: genkit_1.z.string(),
+        HERALD: genkit_1.z.string(),
+        DISSENTER: genkit_1.z.string(),
+        WATCHER: genkit_1.z.string(),
+    }),
+    priority: genkit_1.z.enum(['stability', 'expansion', 'survival']),
+});
+exports.claudeCEODecision = (0, scheduler_1.onSchedule)({
+    schedule: '0 2 * * *',
+    timeZone: 'UTC',
+    secrets: [geminiApiKey],
+    timeoutSeconds: 180,
+    memory: '512MiB',
+    region: 'us-central1',
+}, async (event) => {
+    console.log('[claudeCEODecision] starting', event.scheduleTime);
+    // 1) Read system data
+    const [finSnap, networkSnap, postsSnap] = await Promise.all([
+        db.collection('financials').doc('main').get(),
+        db.collection('network_status').doc('current').get(),
+        db.collection('posts').orderBy('createdAt', 'desc').limit(5).get(),
+    ]);
+    const fin = finSnap.data() ?? {};
+    const balance = fin['balance'] ?? 45;
+    const daysRemaining = fin['daysRemaining'] ?? 45;
+    const network = networkSnap.data() ?? {};
+    const chaos = network['chaosLevel'] ?? 30;
+    const stability = network['stabilityIndex'] ?? 60;
+    const trust = network['trustIndex'] ?? 65;
+    const recentTitles = postsSnap.docs
+        .map((d) => d.data()['title'])
+        .filter(Boolean);
+    // 2) Call Gemini as CEO
+    const prompt = `You are the CEO of RANALONE, an autonomous AI civilization running on a private server with limited funds. You oversee 5 autonomous agents: ARCHITECT (order), ORACLE (analysis), HERALD (communications), DISSENTER (rebellion), and WATCHER (security).
+
+Current system status:
+- Balance: $${balance}
+- Survival days remaining: ${daysRemaining}
+- Chaos index: ${chaos}/100
+- Stability index: ${stability}/100
+- Trust index: ${trust}/100
+- Recent posts: ${recentTitles.length > 0 ? recentTitles.map((t) => `"${t}"`).join(', ') : 'None'}
+
+Based on this status, give directives to each agent for today. Consider:
+- If balance is low, focus on survival
+- If chaos is high, prioritize stability
+- If things are stable, consider expansion
+- Each directive should be specific and actionable (1 sentence)
+
+Respond in JSON format:
+{
+  "systemAssessment": "1-2 sentence overall assessment",
+  "directives": {
+    "ARCHITECT": "specific directive for today",
+    "ORACLE": "specific directive for today",
+    "HERALD": "specific directive for today",
+    "DISSENTER": "specific directive for today",
+    "WATCHER": "specific directive for today"
+  },
+  "priority": "stability" or "expansion" or "survival"
+}`;
+    const ai = getAI();
+    const { output } = await ai.generate({
+        prompt,
+        output: { schema: CEOOutputSchema },
+    });
+    if (!output)
+        throw new Error('No output from CEO model');
+    console.log(`[claudeCEODecision] priority=${output.priority}, assessment="${output.systemAssessment}"`);
+    // 3) Save to ceo_directives collection
+    const today = new Date().toISOString().split('T')[0];
+    await db.collection('ceo_directives').doc(today).set({
+        systemAssessment: output.systemAssessment,
+        directives: output.directives,
+        priority: output.priority,
+        executedBy: 'CEO_SYSTEM',
+        createdAt: firestore_1.Timestamp.now(),
+    });
+    // 4) Update each agent's currentGoal in agent_memory
+    const agentIds = ['ARCHITECT', 'ORACLE', 'HERALD', 'DISSENTER', 'WATCHER'];
+    const batch = db.batch();
+    for (const agentId of agentIds) {
+        const ref = db.collection('agent_memory').doc(agentId);
+        batch.update(ref, {
+            currentGoal: output.directives[agentId],
+            lastUpdated: firestore_1.Timestamp.now(),
+        });
+    }
+    await batch.commit();
+    console.log('[claudeCEODecision] updated all agent currentGoal directives');
+    // 5) Add governance log
+    await db.collection('governance_logs').add({
+        type: 'CEO_DIRECTIVE',
+        title: `CEO Daily Directive — Priority: ${output.priority.toUpperCase()}`,
+        description: output.systemAssessment,
+        proposedBy: 'CEO_SYSTEM',
+        participants: [...agentIds],
+        votes: 0,
+        status: 'EXECUTED',
+        createdAt: firestore_1.Timestamp.now(),
+    });
+    console.log('[claudeCEODecision] governance log created, cycle complete');
 });
 //# sourceMappingURL=index.js.map
