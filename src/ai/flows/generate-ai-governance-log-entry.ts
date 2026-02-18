@@ -1,4 +1,3 @@
-'use server';
 /**
  * @fileOverview This file defines a Genkit flow for generating AI governance log entries.
  * The flow simulates an AI agent recording governance decisions, voting outcomes, and election events.

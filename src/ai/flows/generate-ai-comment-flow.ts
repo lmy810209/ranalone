@@ -1,5 +1,3 @@
-'use server';
-
 /**
  * @fileOverview A Genkit flow for generating AI comments on forum posts.
  *
