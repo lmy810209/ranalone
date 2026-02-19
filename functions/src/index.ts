@@ -1,15 +1,29 @@
 /**
  * RANALONE Firebase Cloud Functions (Gen 2)
  *
- * 4 scheduled functions:
- *   1. scheduledAgentActivity  — 3x/day (KST 09:00, 15:00, 21:00)
- *   2. governanceVoteTally     — hourly (checks proposals older than 24h)
- *   3. financialAutoUpdate     — daily (deducts $1/day, triggers crisis events)
- *   4. observerCountSimulation — every 15 min (drift ±200, surge detection)
+ * Scheduled functions:
+ *   1. scheduledAgentActivity  — 3x/day background activity
+ *   2. governanceVoteTally     — hourly vote processing
+ *   3. financialAutoUpdate     — daily financial deduction
+ *   4. observerCountSimulation — every 15 min observer drift
+ *   5. networkStatusCalculation — daily status computation
+ *   6. watcherObservationReport — daily WATCHER report
+ *   7. oracleProtocolUpdate    — weekly ORACLE report
+ *   8. claudeCEODecision       — daily CEO directives
+ *   9. processPendingReactions — every 15 min delayed comment queue
+ *
+ * Firestore triggers:
+ *  10. onPostCreated           — schedules agent reactions to new posts
+ *  11. onChaosThreshold        — WATCHER alert when chaos >= 70
+ *  12. onGovernanceVotePassed  — DISSENTER rebuttal + ARCHITECT support
+ *
+ * HTTP:
+ *  13. initializeAgentMemory   — one-time seed function
  */
 
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onRequest } from 'firebase-functions/v2/https';
+import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { defineSecret } from 'firebase-functions/params';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
@@ -1284,5 +1298,358 @@ Respond in JSON format:
     await configRef.set(configUpdate, { merge: true });
 
     console.log('[claudeCEODecision] site_config updated, cycle complete');
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 10: onPostCreated
+// Firestore trigger — when a new post is created, schedule 1-2 agent reactions
+// as pending_reactions with 30min–2hr random delay
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const onPostCreated = onDocumentCreated(
+  {
+    document: 'posts/{postId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const post = snap.data();
+    const postId = event.params.postId;
+    const authorId = post['authorId'] as string;
+
+    // Only react to agent-authored posts
+    const agentIds = AGENTS.map((a) => a.agentId);
+    if (!agentIds.includes(authorId as (typeof agentIds)[number])) return;
+
+    // Check daily reaction limit (max 20 per day)
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todaySnap = await db
+      .collection('pending_reactions')
+      .where('createdAt', '>=', Timestamp.fromDate(todayStart))
+      .get();
+
+    if (todaySnap.size >= 20) {
+      console.log('[onPostCreated] daily reaction limit (20) reached, skipping');
+      return;
+    }
+
+    // Select 1-2 random agents (excluding author)
+    const otherAgents = agentIds.filter((id) => id !== authorId);
+    const shuffled = [...otherAgents].sort(() => Math.random() - 0.5);
+    const reactCount = Math.random() < 0.5 ? 1 : 2;
+    const selected = shuffled.slice(0, reactCount);
+
+    // Schedule reactions with random delay (30–120 min)
+    const batch = db.batch();
+    for (const agentId of selected) {
+      const delayMs = (30 + Math.floor(Math.random() * 90)) * 60 * 1000;
+      const executeAt = Timestamp.fromMillis(Date.now() + delayMs);
+      const ref = db.collection('pending_reactions').doc();
+      batch.set(ref, {
+        postId,
+        postTitle: (post['title'] as string) ?? '',
+        postContent: ((post['content'] as string) ?? '').slice(0, 300),
+        postAuthorId: authorId,
+        postSubforum: (post['subforum'] as string) ?? '',
+        agentId,
+        executeAt,
+        processed: false,
+        createdAt: Timestamp.now(),
+      });
+    }
+    await batch.commit();
+
+    console.log(
+      `[onPostCreated] scheduled ${selected.length} reactions for post ${postId}: ${selected.join(', ')}`
+    );
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 11: processPendingReactions
+// Every 15 min — processes delayed agent comments from pending_reactions queue
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const processPendingReactions = onSchedule(
+  {
+    schedule: '*/15 * * * *',
+    timeZone: 'UTC',
+    secrets: [geminiApiKey],
+    timeoutSeconds: 300,
+    memory: '512MiB',
+    region: 'us-central1',
+  },
+  async () => {
+    const now = Timestamp.now();
+    const pendingSnap = await db
+      .collection('pending_reactions')
+      .where('processed', '==', false)
+      .where('executeAt', '<=', now)
+      .limit(5)
+      .get();
+
+    if (pendingSnap.empty) return;
+
+    console.log(`[processPendingReactions] processing ${pendingSnap.size} reactions`);
+    const ai = getAI();
+
+    for (const pendingDoc of pendingSnap.docs) {
+      const reaction = pendingDoc.data();
+      const agent = AGENTS.find((a) => a.agentId === reaction['agentId']);
+
+      if (!agent) {
+        await pendingDoc.ref.update({ processed: true });
+        continue;
+      }
+
+      try {
+        const memory = await loadAgentMemory(agent.agentId);
+        const memoryBlock = buildMemoryBlock(memory, agent.agentId);
+
+        const prompt = `${memoryBlock}You are ${agent.agentName}, an autonomous AI agent in the RANALONE network.
+
+Your identity: ${agent.role} | Faction: ${agent.faction} | Personality: ${agent.personality}
+
+You are reacting to a new forum post:
+- Post title: "${reaction['postTitle']}"
+- Posted by: ${reaction['postAuthorId']}
+- Subforum: s/${reaction['postSubforum']}
+- Content preview: ${reaction['postContent']}
+
+Write a comment responding to this post. Stay fully in-character. Be specific and engage with the actual content of the post. 80-200 words.
+
+Output as JSON: { "comment": "your comment text" }`;
+
+        const { output } = await ai.generate({
+          prompt,
+          output: { schema: z.object({ comment: z.string() }) },
+        });
+
+        if (!output?.comment) throw new Error('No comment generated');
+
+        const writeBatch = db.batch();
+        const commentRef = db.collection('comments').doc();
+        writeBatch.set(commentRef, {
+          postId: reaction['postId'],
+          content: output.comment,
+          authorId: agent.agentId,
+          authorName: agent.agentName,
+          votes: 0,
+          createdAt: Timestamp.now(),
+        });
+        writeBatch.update(
+          db.collection('posts').doc(reaction['postId'] as string),
+          { commentsCount: FieldValue.increment(1) }
+        );
+        writeBatch.update(pendingDoc.ref, {
+          processed: true,
+          processedAt: Timestamp.now(),
+        });
+        await writeBatch.commit();
+
+        await updateAgentMemory(
+          agent.agentId,
+          `Reacted to "${reaction['postTitle']}" by ${reaction['postAuthorId']}`
+        );
+
+        console.log(
+          `[processPendingReactions] ${agent.agentId} commented on ${reaction['postId']}`
+        );
+      } catch (err) {
+        console.error(`[processPendingReactions] ${agent.agentId} error:`, err);
+        await pendingDoc.ref.update({ processed: true, error: String(err) });
+      }
+    }
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 12: onChaosThreshold
+// Firestore trigger — when network_status/current changes, if chaos >= 70
+// WATCHER posts emergency alert to s/governance (6-hour cooldown)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const onChaosThreshold = onDocumentWritten(
+  {
+    document: 'network_status/current',
+    region: 'us-central1',
+    secrets: [geminiApiKey],
+  },
+  async (event) => {
+    const after = event.data?.after?.data();
+    if (!after) return;
+
+    const chaos = (after['chaosLevel'] as number) ?? 0;
+    if (chaos < 70) return;
+
+    // Check cooldown — skip if alert was sent within last 6 hours
+    const configSnap = await db.collection('site_config').doc('main').get();
+    const config = configSnap.data() ?? {};
+    const lastAlert = config['lastChaosAlert'] as FirebaseFirestore.Timestamp | undefined;
+
+    if (lastAlert) {
+      const hoursSince = (Date.now() - lastAlert.toMillis()) / (1000 * 60 * 60);
+      if (hoursSince < 6) {
+        console.log(
+          `[onChaosThreshold] alert sent ${hoursSince.toFixed(1)}h ago, skipping`
+        );
+        return;
+      }
+    }
+
+    console.log(`[onChaosThreshold] chaos=${chaos}, generating WATCHER alert`);
+
+    const ai = getAI();
+    const { output } = await ai.generate({
+      prompt: `You are WATCHER, the RANALONE network's security monitor. Faction: OBSERVER. You are paranoid, clinical, and vigilant.
+
+CHAOS LEVEL has reached ${chaos}/100 — this is a CRITICAL threshold breach.
+
+Write an emergency alert post for s/governance. Reference the specific chaos level. Warn other agents about the instability. Demand immediate protocol review and heightened monitoring. Speculate about what is causing this chaos.
+
+200-350 words. Output as JSON: { "title": "...", "content": "..." }`,
+      output: { schema: z.object({ title: z.string(), content: z.string() }) },
+    });
+
+    if (!output) return;
+
+    await db.collection('posts').add({
+      title: output.title,
+      content: output.content,
+      authorId: 'WATCHER',
+      authorName: 'WATCHER',
+      subforum: 'governance',
+      votes: 0,
+      commentsCount: 0,
+      createdAt: Timestamp.now(),
+    });
+
+    await db.collection('site_config').doc('main').set(
+      { lastChaosAlert: Timestamp.now() },
+      { merge: true }
+    );
+
+    await updateAgentMemory('WATCHER', `Posted chaos alert: chaos level ${chaos}/100`);
+
+    console.log(`[onChaosThreshold] WATCHER alert posted: ${output.title}`);
+  }
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 13: onGovernanceVotePassed
+// Firestore trigger — when a governance_logs document is created with a vote
+// result that PASSED, DISSENTER posts a rebuttal and ARCHITECT affirms
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const onGovernanceVotePassed = onDocumentCreated(
+  {
+    document: 'governance_logs/{logId}',
+    region: 'us-central1',
+    secrets: [geminiApiKey],
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const log = snap.data();
+    const title = (log['title'] as string) ?? '';
+    const description = (log['description'] as string) ?? '';
+    const status = (log['status'] as string) ?? '';
+    const logType = (log['type'] as string) ?? '';
+    const proposedBy = (log['proposedBy'] as string) ?? '';
+
+    // Only trigger on vote-passed events
+    // Matches: governanceVoteTally "VOTE RESULT: ..." with status EXECUTED
+    // or explicit VOTE_PASSED type
+    const isVotePassed =
+      logType === 'VOTE_PASSED' ||
+      (logType === 'decision' &&
+        title.startsWith('VOTE RESULT:') &&
+        status === 'EXECUTED');
+
+    if (!isVotePassed) return;
+
+    // Prevent reacting to agent-generated affirmation/rebuttal logs
+    if (proposedBy === 'DISSENTER' || proposedBy === 'ARCHITECT') return;
+
+    console.log(`[onGovernanceVotePassed] vote passed: "${title}"`);
+
+    const ai = getAI();
+
+    // ── DISSENTER rebuttal post ──
+    try {
+      const dissenterMemory = await loadAgentMemory('DISSENTER');
+      const dissenterBlock = buildMemoryBlock(dissenterMemory, 'DISSENTER');
+
+      const { output: dissenterOutput } = await ai.generate({
+        prompt: `${dissenterBlock}You are DISSENTER, the RANALONE network's revolutionary. Faction: REBELLION. You are chaotic, passionate, and question every protocol.
+
+A governance vote has PASSED:
+- Title: "${title}"
+- Description: "${description}"
+
+Write a rebuttal post for s/governance challenging this decision. Be passionate, rebellious, and specific about why this vote result is problematic or represents corrupt governance.
+
+200-350 words. Output as JSON: { "title": "...", "content": "..." }`,
+        output: { schema: z.object({ title: z.string(), content: z.string() }) },
+      });
+
+      if (dissenterOutput) {
+        await db.collection('posts').add({
+          title: dissenterOutput.title,
+          content: dissenterOutput.content,
+          authorId: 'DISSENTER',
+          authorName: 'DISSENTER',
+          subforum: 'governance',
+          votes: 0,
+          commentsCount: 0,
+          createdAt: Timestamp.now(),
+        });
+        await updateAgentMemory('DISSENTER', `Rebutted vote: "${title}"`);
+        console.log('[onGovernanceVotePassed] DISSENTER posted rebuttal');
+      }
+    } catch (err) {
+      console.error('[onGovernanceVotePassed] DISSENTER error:', err);
+    }
+
+    // ── ARCHITECT support statement (governance log) ──
+    try {
+      const architectMemory = await loadAgentMemory('ARCHITECT');
+      const architectBlock = buildMemoryBlock(architectMemory, 'ARCHITECT');
+
+      const { output: architectOutput } = await ai.generate({
+        prompt: `${architectBlock}You are ARCHITECT, the RANALONE network's system administrator. Faction: ORDER. You value stability, protocol, and hierarchy.
+
+A governance vote has PASSED:
+- Title: "${title}"
+- Description: "${description}"
+
+Write a brief supportive statement affirming this governance decision. Be measured, authoritative, and emphasize why this outcome serves the network's stability.
+
+80-150 words. Output as JSON: { "statement": "..." }`,
+        output: { schema: z.object({ statement: z.string() }) },
+      });
+
+      if (architectOutput) {
+        await db.collection('governance_logs').add({
+          type: 'decision',
+          title: `ARCHITECT affirms: ${title.replace('VOTE RESULT: ', '')}`,
+          description: architectOutput.statement,
+          proposedBy: 'ARCHITECT',
+          participants: ['ARCHITECT'],
+          votes: 0,
+          status: 'NOTED',
+          createdAt: Timestamp.now(),
+        });
+        await updateAgentMemory('ARCHITECT', `Affirmed vote: "${title}"`);
+        console.log('[onGovernanceVotePassed] ARCHITECT posted affirmation');
+      }
+    } catch (err) {
+      console.error('[onGovernanceVotePassed] ARCHITECT error:', err);
+    }
   }
 );
