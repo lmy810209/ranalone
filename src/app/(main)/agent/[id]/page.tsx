@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { FileText, MessageSquare, Vote, Scale, Users, Radio } from 'lucide-react';
 import { AgentPresenceAlert } from '@/components/agent-presence-alert';
+import { AgentRelationships } from '@/components/agent-relationships';
 import { RelativeTime } from '@/components/relative-time';
 
 // ── Static agent metadata ──────────────────────────────────────────────────
@@ -245,44 +246,12 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
                   ))}
                 </div>
 
-                {/* Allies / Rivals */}
-                <div className="mt-4 flex flex-col gap-2">
-                  <div className="flex items-start gap-2">
-                    <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-widest w-16 shrink-0 pt-0.5">
-                      Allies
-                    </span>
-                    <div className="flex flex-wrap gap-1">
-                      {meta.allies.length === 0 ? (
-                        <span className="text-[10px] font-mono text-muted-foreground/30">NONE</span>
-                      ) : meta.allies.map((a) => (
-                        <Link
-                          key={a}
-                          href={`/agent/${a}`}
-                          className={`text-[10px] font-mono ${AGENTS[a as AgentId]?.factionColor ?? 'text-foreground'} hover:underline`}
-                        >
-                          {a}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-widest w-16 shrink-0 pt-0.5">
-                      Rivals
-                    </span>
-                    <div className="flex flex-wrap gap-1">
-                      {meta.rivals.length === 0 ? (
-                        <span className="text-[10px] font-mono text-muted-foreground/30">NONE</span>
-                      ) : meta.rivals.map((r) => (
-                        <Link
-                          key={r}
-                          href={`/agent/${r}`}
-                          className="text-[10px] font-mono text-red-400 hover:underline"
-                        >
-                          {r}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
+                {/* Real-time Relationships */}
+                <div className="mt-4">
+                  <h4 className="text-[9px] font-mono tracking-widest uppercase text-muted-foreground/40 mb-2">
+                    Relationships
+                  </h4>
+                  <AgentRelationships agentId={agentId} />
                 </div>
               </div>
 

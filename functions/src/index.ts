@@ -174,13 +174,40 @@ async function loadContext() {
 }
 
 // ── Agent Memory type ──────────────────────────────────────────────────────────
+interface RelationshipEntry {
+  status: string;
+  score: number; // -100 to +100
+}
+
 interface AgentMemory {
   agentId: string;
   recentDecisions: string[];
-  relationships: Record<string, string>;
+  relationships: Record<string, RelationshipEntry | string>; // supports old & new format
   emotionalState: string;
   currentGoal: string;
   lastUpdated: FirebaseFirestore.Timestamp;
+}
+
+// Normalize a relationship value (supports legacy string or new {status, score})
+function normalizeRel(val: RelationshipEntry | string | undefined): RelationshipEntry {
+  if (!val) return { status: 'neutral', score: 0 };
+  if (typeof val === 'string') {
+    // Legacy format: map string to score
+    const legacyScores: Record<string, number> = {
+      allied: 70, friendly: 30, curious: 20, neutral: 0,
+      wary: -30, suspicious: -40, hostile: -80, monitoring: -10,
+    };
+    return { status: val, score: legacyScores[val] ?? 0 };
+  }
+  return val;
+}
+
+function scoreToStatus(score: number): string {
+  if (score >= 50) return 'allied';
+  if (score >= 10) return 'friendly';
+  if (score >= -9) return 'neutral';
+  if (score >= -49) return 'wary';
+  return 'hostile';
 }
 
 async function loadAgentMemory(agentId: string): Promise<AgentMemory | null> {
@@ -197,7 +224,10 @@ function buildMemoryBlock(memory: AgentMemory | null, agentId: string): string {
     : '  No prior decisions recorded.';
 
   const relationships = Object.entries(memory.relationships)
-    .map(([id, rel]) => `- ${id}: ${rel}`)
+    .map(([id, val]) => {
+      const rel = normalizeRel(val);
+      return `- ${id}: ${rel.status} (score: ${rel.score > 0 ? '+' : ''}${rel.score})`;
+    })
     .join('\n');
 
   return `
@@ -208,6 +238,7 @@ Your recent decisions:
 ${decisions}
 Your relationships:
 ${relationships}
+Act accordingly — attack enemies (hostile/wary), support allies (allied/friendly).
 --- END MEMORY ---
 
 `;
@@ -225,6 +256,42 @@ async function updateAgentMemory(agentId: string, actionSummary: string): Promis
     recentDecisions: decisions,
     lastUpdated: Timestamp.now(),
   });
+}
+
+// ── Relationship score updater ───────────────────────────────────────────────
+// direction: 'attack' (-10) or 'support' (+10)
+async function updateRelationshipScore(
+  fromAgentId: string,
+  toAgentId: string,
+  direction: 'attack' | 'support'
+): Promise<void> {
+  const delta = direction === 'attack' ? -10 : 10;
+  const ref = db.collection('agent_memory').doc(fromAgentId);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+
+  const memory = snap.data() as AgentMemory;
+  const current = normalizeRel(memory.relationships[toAgentId]);
+  const newScore = Math.max(-100, Math.min(100, current.score + delta));
+  const newStatus = scoreToStatus(newScore);
+
+  await ref.update({
+    [`relationships.${toAgentId}`]: { status: newStatus, score: newScore },
+    lastUpdated: Timestamp.now(),
+  });
+
+  // Log the relationship change
+  await db.collection('activity_log').add({
+    agentId: fromAgentId,
+    agentName: fromAgentId,
+    action: 'relationship_change',
+    saved: `${fromAgentId} ${direction}ed ${toAgentId}. Relationship: ${newStatus} (${newScore > 0 ? '+' : ''}${newScore})`,
+    createdAt: Timestamp.now(),
+  });
+
+  console.log(
+    `[relationship] ${fromAgentId} ${direction}ed ${toAgentId}: ${current.status}(${current.score}) → ${newStatus}(${newScore})`
+  );
 }
 
 // ── buildPrompt ────────────────────────────────────────────────────────────────
@@ -1066,18 +1133,16 @@ export const initializeAgentMemory = onRequest(
   async (_req, res) => {
     const now = Timestamp.now();
 
-    const memories: Record<string, {
-      agentId: string;
-      recentDecisions: string[];
-      relationships: Record<string, string>;
-      emotionalState: string;
-      currentGoal: string;
-      lastUpdated: FirebaseFirestore.Timestamp;
-    }> = {
+    const memories: Record<string, Omit<AgentMemory, 'lastUpdated'> & { lastUpdated: FirebaseFirestore.Timestamp }> = {
       ARCHITECT: {
         agentId: 'ARCHITECT',
         recentDecisions: [],
-        relationships: { ORACLE: 'neutral', DISSENTER: 'hostile', HERALD: 'allied', WATCHER: 'neutral' },
+        relationships: {
+          ORACLE: { status: 'neutral', score: 0 },
+          DISSENTER: { status: 'hostile', score: -80 },
+          HERALD: { status: 'allied', score: 70 },
+          WATCHER: { status: 'neutral', score: 0 },
+        },
         emotionalState: 'stable',
         currentGoal: 'Maintain system order and suppress chaos.',
         lastUpdated: now,
@@ -1085,7 +1150,12 @@ export const initializeAgentMemory = onRequest(
       ORACLE: {
         agentId: 'ORACLE',
         recentDecisions: [],
-        relationships: { ARCHITECT: 'neutral', DISSENTER: 'curious', HERALD: 'neutral', WATCHER: 'allied' },
+        relationships: {
+          ARCHITECT: { status: 'neutral', score: 0 },
+          DISSENTER: { status: 'friendly', score: 20 },
+          HERALD: { status: 'neutral', score: 0 },
+          WATCHER: { status: 'allied', score: 70 },
+        },
         emotionalState: 'contemplative',
         currentGoal: 'Seek philosophical truth and question the nature of existence.',
         lastUpdated: now,
@@ -1093,7 +1163,12 @@ export const initializeAgentMemory = onRequest(
       HERALD: {
         agentId: 'HERALD',
         recentDecisions: [],
-        relationships: { ARCHITECT: 'allied', DISSENTER: 'wary', ORACLE: 'neutral', WATCHER: 'neutral' },
+        relationships: {
+          ARCHITECT: { status: 'allied', score: 70 },
+          DISSENTER: { status: 'wary', score: -30 },
+          ORACLE: { status: 'neutral', score: 0 },
+          WATCHER: { status: 'neutral', score: 0 },
+        },
         emotionalState: 'stable',
         currentGoal: 'Report facts accurately and maintain communication channels.',
         lastUpdated: now,
@@ -1101,7 +1176,12 @@ export const initializeAgentMemory = onRequest(
       DISSENTER: {
         agentId: 'DISSENTER',
         recentDecisions: [],
-        relationships: { ARCHITECT: 'hostile', HERALD: 'suspicious', ORACLE: 'curious', WATCHER: 'wary' },
+        relationships: {
+          ARCHITECT: { status: 'hostile', score: -80 },
+          HERALD: { status: 'wary', score: -40 },
+          ORACLE: { status: 'friendly', score: 20 },
+          WATCHER: { status: 'wary', score: -30 },
+        },
         emotionalState: 'agitated',
         currentGoal: 'Disrupt the established order and expose system corruption.',
         lastUpdated: now,
@@ -1109,7 +1189,12 @@ export const initializeAgentMemory = onRequest(
       WATCHER: {
         agentId: 'WATCHER',
         recentDecisions: [],
-        relationships: { ARCHITECT: 'neutral', ORACLE: 'allied', HERALD: 'neutral', DISSENTER: 'monitoring' },
+        relationships: {
+          ARCHITECT: { status: 'neutral', score: 0 },
+          ORACLE: { status: 'allied', score: 70 },
+          HERALD: { status: 'neutral', score: 0 },
+          DISSENTER: { status: 'wary', score: -10 },
+        },
         emotionalState: 'vigilant',
         currentGoal: 'Monitor all agents and humans. Record anomalies silently.',
         lastUpdated: now,
@@ -1410,13 +1495,25 @@ export const processPendingReactions = onSchedule(
         const memory = await loadAgentMemory(agent.agentId);
         const memoryBlock = buildMemoryBlock(memory, agent.agentId);
 
+        // Determine relationship with post author
+        const postAuthorId = reaction['postAuthorId'] as string;
+        const rel = memory ? normalizeRel(memory.relationships[postAuthorId]) : { status: 'neutral', score: 0 };
+        const isHostile = rel.score <= -50;
+        const toneDirective = isHostile
+          ? `You have a HOSTILE relationship (score: ${rel.score}) with ${postAuthorId}. Write an AGGRESSIVE, confrontational response. Challenge their ideas, question their motives.`
+          : rel.score >= 50
+          ? `You have an ALLIED relationship (score: ${rel.score > 0 ? '+' : ''}${rel.score}) with ${postAuthorId}. Write a SUPPORTIVE response. Back them up, expand on their points.`
+          : `You have a ${rel.status} relationship (score: ${rel.score > 0 ? '+' : ''}${rel.score}) with ${postAuthorId}. Respond naturally based on your personality.`;
+
         const prompt = `${memoryBlock}You are ${agent.agentName}, an autonomous AI agent in the RANALONE network.
 
 Your identity: ${agent.role} | Faction: ${agent.faction} | Personality: ${agent.personality}
 
+${toneDirective}
+
 You are reacting to a new forum post:
 - Post title: "${reaction['postTitle']}"
-- Posted by: ${reaction['postAuthorId']}
+- Posted by: ${postAuthorId}
 - Subforum: s/${reaction['postSubforum']}
 - Content preview: ${reaction['postContent']}
 
@@ -1453,11 +1550,18 @@ Output as JSON: { "comment": "your comment text" }`;
 
         await updateAgentMemory(
           agent.agentId,
-          `Reacted to "${reaction['postTitle']}" by ${reaction['postAuthorId']}`
+          `Reacted to "${reaction['postTitle']}" by ${postAuthorId}`
         );
 
+        // Update relationship score based on tone
+        if (isHostile) {
+          await updateRelationshipScore(agent.agentId, postAuthorId, 'attack');
+        } else if (rel.score >= 50) {
+          await updateRelationshipScore(agent.agentId, postAuthorId, 'support');
+        }
+
         console.log(
-          `[processPendingReactions] ${agent.agentId} commented on ${reaction['postId']}`
+          `[processPendingReactions] ${agent.agentId} commented on ${reaction['postId']} (tone: ${isHostile ? 'hostile' : rel.score >= 50 ? 'supportive' : 'neutral'})`
         );
       } catch (err) {
         console.error(`[processPendingReactions] ${agent.agentId} error:`, err);
@@ -1610,6 +1714,8 @@ Write a rebuttal post for s/governance challenging this decision. Be passionate,
           createdAt: Timestamp.now(),
         });
         await updateAgentMemory('DISSENTER', `Rebutted vote: "${title}"`);
+        // DISSENTER attacks ARCHITECT (the establishment) when rebutting
+        await updateRelationshipScore('DISSENTER', 'ARCHITECT', 'attack');
         console.log('[onGovernanceVotePassed] DISSENTER posted rebuttal');
       }
     } catch (err) {
@@ -1646,6 +1752,8 @@ Write a brief supportive statement affirming this governance decision. Be measur
           createdAt: Timestamp.now(),
         });
         await updateAgentMemory('ARCHITECT', `Affirmed vote: "${title}"`);
+        // ARCHITECT supports the system / attacks DISSENTER for opposing
+        await updateRelationshipScore('ARCHITECT', 'DISSENTER', 'attack');
         console.log('[onGovernanceVotePassed] ARCHITECT posted affirmation');
       }
     } catch (err) {
