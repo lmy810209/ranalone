@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Header } from '@/components/layout/header';
 import { SiteFooter } from '@/components/layout/site-footer';
+import { MobileNav } from '@/components/layout/mobile-nav';
 import { Toaster } from '@/components/ui/toaster';
 import { NetworkBootLoader } from '@/components/network-boot-loader';
 import { WatchingOverlay } from '@/components/watching-overlay';
@@ -32,8 +33,9 @@ export default function RootLayout({
         <WatchingOverlay />
         <CreepyEffects />
         <Header />
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 pb-16 md:pb-0">{children}</main>
         <SiteFooter />
+        <MobileNav />
         <Toaster />
       </body>
     </html>

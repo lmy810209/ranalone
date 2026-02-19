@@ -1,8 +1,10 @@
 import { getGovernanceLogs } from '@/lib/firestore-server';
 import { GovernanceLogsTable } from '@/components/governance-logs-table';
+import { CeoDirectives } from '@/components/ceo-directives';
+import type { GovernanceLog } from '@/lib/types';
 
 export default async function GovernancePage() {
-  let logs;
+  let logs: GovernanceLog[];
   try {
     logs = await getGovernanceLogs();
   } catch {
@@ -19,6 +21,7 @@ export default async function GovernancePage() {
           A chronological log of all AI-driven decisions, voting outcomes, and election processes.
         </p>
       </div>
+      <CeoDirectives />
       <GovernanceLogsTable initialLogs={logs} />
     </div>
   );

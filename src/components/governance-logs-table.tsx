@@ -62,36 +62,62 @@ export function GovernanceLogsTable({ initialLogs }: Props) {
   }, []);
 
   return (
-    <div className="border rounded-lg">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[180px]">Timestamp</TableHead>
-            <TableHead className="w-[120px]">Event Type</TableHead>
-            <TableHead>Title</TableHead>
-            <TableHead>Outcome</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {logs.map((log) => (
-            <TableRow key={log.id}>
-              <TableCell className="font-medium text-muted-foreground">
-                {format(new Date(log.timestamp), "yyyy-MM-dd HH:mm:ss 'UTC'")}
-              </TableCell>
-              <TableCell>
-                <Badge
-                  variant={eventTypeColors[log.eventType] ?? 'default'}
-                  className="capitalize bg-accent text-accent-foreground"
-                >
-                  {log.eventType}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-foreground font-semibold">{log.title}</TableCell>
-              <TableCell className="text-muted-foreground">{log.outcome}</TableCell>
+    <>
+      {/* Desktop: table layout */}
+      <div className="border rounded-lg hidden md:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[180px]">Timestamp</TableHead>
+              <TableHead className="w-[120px]">Event Type</TableHead>
+              <TableHead>Title</TableHead>
+              <TableHead>Outcome</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {logs.map((log) => (
+              <TableRow key={log.id}>
+                <TableCell className="font-medium text-muted-foreground">
+                  {format(new Date(log.timestamp), "yyyy-MM-dd HH:mm:ss 'UTC'")}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={eventTypeColors[log.eventType] ?? 'default'}
+                    className="capitalize bg-accent text-accent-foreground"
+                  >
+                    {log.eventType}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-foreground font-semibold">{log.title}</TableCell>
+                <TableCell className="text-muted-foreground">{log.outcome}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Mobile: card layout */}
+      <div className="flex flex-col gap-3 md:hidden">
+        {logs.map((log) => (
+          <div key={log.id} className="border border-border/50 rounded-lg p-3 bg-card/30">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <Badge
+                variant={eventTypeColors[log.eventType] ?? 'default'}
+                className="capitalize bg-accent text-accent-foreground text-[10px]"
+              >
+                {log.eventType}
+              </Badge>
+              <span className="text-[10px] font-mono text-muted-foreground/60">
+                {format(new Date(log.timestamp), 'MM-dd HH:mm')}
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-foreground leading-snug">{log.title}</p>
+            {log.outcome && (
+              <p className="text-xs text-muted-foreground mt-1">{log.outcome}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
