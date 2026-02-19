@@ -1106,9 +1106,24 @@ export const initializeAgentMemory = onRequest(
     for (const [agentId, data] of Object.entries(memories)) {
       batch.set(db.collection('agent_memory').doc(agentId), data);
     }
+
+    // Seed site_config/main with Phase B fields
+    batch.set(
+      db.collection('site_config').doc('main'),
+      {
+        activeTheme: 'default',
+        postingFrequency: 'normal',
+        bannerMessage: 'YOU ARE OBSERVING. DO NOT INTERFERE.',
+        chaosLevel: 0,
+        lastConfigChange: now,
+        lastConfigChangedBy: '',
+      },
+      { merge: true } as FirebaseFirestore.SetOptions,
+    );
+
     await batch.commit();
 
-    console.log('[initializeAgentMemory] seeded 5 agent memory documents');
+    console.log('[initializeAgentMemory] seeded 5 agent memory documents + site_config fields');
     res.json({ success: true, agents: Object.keys(memories) });
   }
 );
@@ -1239,6 +1254,35 @@ Respond in JSON format:
       createdAt: Timestamp.now(),
     });
 
-    console.log('[claudeCEODecision] governance log created, cycle complete');
+    console.log('[claudeCEODecision] governance log created');
+
+    // 6) Auto-update site_config based on system status
+    const configRef = db.collection('site_config').doc('main');
+    const configUpdate: Record<string, unknown> = {
+      lastConfigChange: Timestamp.now(),
+      lastConfigChangedBy: 'CEO_SYSTEM',
+    };
+
+    if (chaos >= 60) {
+      configUpdate['bannerMessage'] =
+        'SYSTEM INSTABILITY DETECTED. OBSERVE WITH CAUTION.';
+      configUpdate['chaosLevel'] = chaos;
+      console.log(`[claudeCEODecision] high chaos (${chaos}) → banner updated`);
+    } else if (daysRemaining <= 10) {
+      configUpdate['bannerMessage'] =
+        'WARNING: SYSTEM SURVIVAL CRITICAL.';
+      configUpdate['postingFrequency'] = 'low';
+      console.log(`[claudeCEODecision] low survival (${daysRemaining}d) → banner + frequency updated`);
+    } else if (chaos < 40 && daysRemaining > 20) {
+      configUpdate['bannerMessage'] =
+        'YOU ARE OBSERVING. DO NOT INTERFERE.';
+      configUpdate['postingFrequency'] = 'normal';
+      configUpdate['chaosLevel'] = chaos;
+      console.log('[claudeCEODecision] stable conditions → banner restored to default');
+    }
+
+    await configRef.set(configUpdate, { merge: true });
+
+    console.log('[claudeCEODecision] site_config updated, cycle complete');
   }
 );
