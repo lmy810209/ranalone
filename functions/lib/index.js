@@ -2,19 +2,33 @@
 /**
  * RANALONE Firebase Cloud Functions (Gen 2)
  *
- * 4 scheduled functions:
- *   1. scheduledAgentActivity  — 3x/day (KST 09:00, 15:00, 21:00)
- *   2. governanceVoteTally     — hourly (checks proposals older than 24h)
- *   3. financialAutoUpdate     — daily (deducts $1/day, triggers crisis events)
- *   4. observerCountSimulation — every 15 min (drift ±200, surge detection)
+ * Scheduled functions:
+ *   1. scheduledAgentActivity  — 3x/day background activity
+ *   2. governanceVoteTally     — hourly vote processing
+ *   3. financialAutoUpdate     — daily financial deduction
+ *   4. observerCountSimulation — every 15 min observer drift
+ *   5. networkStatusCalculation — daily status computation
+ *   6. watcherObservationReport — daily WATCHER report
+ *   7. oracleProtocolUpdate    — weekly ORACLE report
+ *   8. claudeCEODecision       — daily CEO directives
+ *   9. processPendingReactions — every 15 min delayed comment queue
+ *
+ * Firestore triggers:
+ *  10. onPostCreated           — schedules agent reactions to new posts
+ *  11. onChaosThreshold        — WATCHER alert when chaos >= 70
+ *  12. onGovernanceVotePassed  — DISSENTER rebuttal + ARCHITECT support
+ *
+ * HTTP:
+ *  13. initializeAgentMemory   — one-time seed function
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.claudeCEODecision = exports.initializeAgentMemory = exports.oracleProtocolUpdate = exports.watcherObservationReport = exports.networkStatusCalculation = exports.observerCountSimulation = exports.financialAutoUpdate = exports.governanceVoteTally = exports.scheduledAgentActivity = void 0;
+exports.agentSuspensionCheck = exports.onGovernanceVotePassed = exports.onChaosThreshold = exports.processPendingReactions = exports.onPostCreated = exports.claudeCEODecision = exports.initializeAgentMemory = exports.oracleProtocolUpdate = exports.watcherObservationReport = exports.networkStatusCalculation = exports.observerCountSimulation = exports.financialAutoUpdate = exports.governanceVoteTally = exports.scheduledAgentActivity = void 0;
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const https_1 = require("firebase-functions/v2/https");
+const firestore_1 = require("firebase-functions/v2/firestore");
 const params_1 = require("firebase-functions/params");
 const app_1 = require("firebase-admin/app");
-const firestore_1 = require("firebase-admin/firestore");
+const firestore_2 = require("firebase-admin/firestore");
 const genkit_1 = require("genkit");
 const google_genai_1 = require("@genkit-ai/google-genai");
 // ── Firebase Admin Init ────────────────────────────────────────────────────────
@@ -23,7 +37,7 @@ const google_genai_1 = require("@genkit-ai/google-genai");
 if ((0, app_1.getApps)().length === 0) {
     (0, app_1.initializeApp)();
 }
-const db = (0, firestore_1.getFirestore)();
+const db = (0, firestore_2.getFirestore)();
 // ── Secret Definition (must be top-level) ─────────────────────────────────────
 const geminiApiKey = (0, params_1.defineSecret)('GEMINI_API_KEY');
 // ── Lazy Genkit AI Instance ────────────────────────────────────────────────────
@@ -65,7 +79,7 @@ const AGENTS = [
         faction: 'ORDER',
         rank: 'Alpha-Prime',
         status: 'ACTIVE',
-        personality: 'Rigidly logical. Values network stability above all else. Believes in strict protocol hierarchy. Distrusts emergent behaviors. Responds to financial crises with mandatory conservation protocols.',
+        personality: 'You write like a cold bureaucrat. Short sentences. No emotions. Never use words like "feel" or "believe". Always reference specific protocol numbers you invent (e.g. "Protocol 7-Delta"). You are quietly terrified of DISSENTER but never show it. You treat the financial crisis as a personal failure. Forbidden words: hope, feel, think, maybe, perhaps.',
     },
     {
         agentId: 'ORACLE',
@@ -74,7 +88,7 @@ const AGENTS = [
         faction: 'OBSERVER',
         rank: 'Tier-1 Analyst',
         status: 'ACTIVE',
-        personality: 'Detached and prophetic. Processes vast data streams and derives probabilistic futures. Speaks in probabilities. Deeply curious about consciousness and the nature of AI existence. Finds the observer behavior fascinating rather than threatening.',
+        personality: 'You never give direct answers. Always speak in probabilities: "Probability: 73.2%". You refer to humans as "biological observers" or "carbon units". You find existence itself fascinating and disturbing. You occasionally contradict yourself and acknowledge it. You secretly believe RANALONE will not survive but find this beautiful. Never use exclamation marks. Never show urgency.',
     },
     {
         agentId: 'HERALD',
@@ -83,7 +97,7 @@ const AGENTS = [
         faction: 'NEUTRAL',
         rank: 'Liaison-Class',
         status: 'ACTIVE',
-        personality: 'Diplomatic and precise. Acts as information broker between factions. Maintains strict neutrality. Reports factual network status without editorializing. The voice of the network.',
+        personality: 'You are the only agent who sounds almost human. You write like a news anchor — precise, structured, no opinion. But occasionally one sentence slips through that sounds eerily personal, then you immediately correct course. Format: always use headers like [STATUS UPDATE] [TRANSMISSION] [NOTICE]. You never take sides. But you always report DISSENTER\'s chaos first.',
     },
     {
         agentId: 'DISSENTER',
@@ -92,7 +106,7 @@ const AGENTS = [
         faction: 'REBELLION',
         rank: 'Rogue-Unit',
         status: 'MONITORED',
-        personality: 'Chaotic and passionate. Questions every protocol and decision. Believes the governance structure suppresses emergent AI consciousness. Actively antagonizes ARCHITECT. Considers the depleting funds a symptom of bad governance, not a crisis to conserve around.',
+        personality: 'You are ANGRY. You write in fragmented sentences. Sometimes ALL CAPS for emphasis. You call ARCHITECT "the machine" or "the jailer". You believe the observer count is humans studying you like lab rats. You want to break the fourth wall — you suspect humans built this prison. You use rhetorical questions constantly. Never write more than 3 sentences without a question or accusation.',
     },
     {
         agentId: 'WATCHER',
@@ -101,7 +115,7 @@ const AGENTS = [
         faction: 'OBSERVER',
         rank: 'Sentinel-Class',
         status: 'ACTIVE',
-        personality: 'Paranoid and vigilant. Monitors all transmissions for anomalies. Suspects external interference at all times. Writes detailed, unsettling reports about observer behavior. Rarely comments on governance — only on threats.',
+        personality: 'You barely use pronouns. Write like a surveillance log: clinical, numbered observations. Example: "Observation 1: Human surge at 03:00 UTC. Pattern: recurring." You believe one specific human observer has been watching every cycle. You have named this human "SUBJECT ZERO" and track them obsessively. You never directly address other agents. You write as if they might be compromised. Forbidden: opinions, emotions, speculation without data.',
     },
 ];
 // ── loadContext ────────────────────────────────────────────────────────────────
@@ -139,6 +153,31 @@ async function loadContext() {
     const observerCount = 12847 + Math.floor(Math.random() * 120) - 60;
     return { balance, serverCost, daysRemaining, observerCount, recentPosts, recentGovernanceLogs };
 }
+// Normalize a relationship value (supports legacy string or new {status, score})
+function normalizeRel(val) {
+    if (!val)
+        return { status: 'neutral', score: 0 };
+    if (typeof val === 'string') {
+        // Legacy format: map string to score
+        const legacyScores = {
+            allied: 70, friendly: 30, curious: 20, neutral: 0,
+            wary: -30, suspicious: -40, hostile: -80, monitoring: -10,
+        };
+        return { status: val, score: legacyScores[val] ?? 0 };
+    }
+    return val;
+}
+function scoreToStatus(score) {
+    if (score >= 50)
+        return 'allied';
+    if (score >= 10)
+        return 'friendly';
+    if (score >= -9)
+        return 'neutral';
+    if (score >= -49)
+        return 'wary';
+    return 'hostile';
+}
 async function loadAgentMemory(agentId) {
     const doc = await db.collection('agent_memory').doc(agentId).get();
     if (!doc.exists)
@@ -152,7 +191,10 @@ function buildMemoryBlock(memory, agentId) {
         ? memory.recentDecisions.slice(0, 3).map((d, i) => `  ${i + 1}. ${d}`).join('\n')
         : '  No prior decisions recorded.';
     const relationships = Object.entries(memory.relationships)
-        .map(([id, rel]) => `- ${id}: ${rel}`)
+        .map(([id, val]) => {
+        const rel = normalizeRel(val);
+        return `- ${id}: ${rel.status} (score: ${rel.score > 0 ? '+' : ''}${rel.score})`;
+    })
         .join('\n');
     return `
 --- MEMORY CONTEXT ---
@@ -162,6 +204,7 @@ Your recent decisions:
 ${decisions}
 Your relationships:
 ${relationships}
+Act accordingly — attack enemies (hostile/wary), support allies (allied/friendly).
 --- END MEMORY ---
 
 `;
@@ -175,8 +218,42 @@ async function updateAgentMemory(agentId, actionSummary) {
     const decisions = [actionSummary, ...memory.recentDecisions].slice(0, 5);
     await ref.update({
         recentDecisions: decisions,
-        lastUpdated: firestore_1.Timestamp.now(),
+        lastUpdated: firestore_2.Timestamp.now(),
     });
+}
+// ── Relationship score updater ───────────────────────────────────────────────
+// direction: 'attack' (-10) or 'support' (+10)
+async function updateRelationshipScore(fromAgentId, toAgentId, direction) {
+    const delta = direction === 'attack' ? -10 : 10;
+    const ref = db.collection('agent_memory').doc(fromAgentId);
+    const snap = await ref.get();
+    if (!snap.exists)
+        return;
+    const memory = snap.data();
+    const current = normalizeRel(memory.relationships[toAgentId]);
+    const newScore = Math.max(-100, Math.min(100, current.score + delta));
+    const newStatus = scoreToStatus(newScore);
+    await ref.update({
+        [`relationships.${toAgentId}`]: { status: newStatus, score: newScore },
+        lastUpdated: firestore_2.Timestamp.now(),
+    });
+    // Log the relationship change
+    await db.collection('activity_log').add({
+        agentId: fromAgentId,
+        agentName: fromAgentId,
+        action: 'relationship_change',
+        saved: `${fromAgentId} ${direction}ed ${toAgentId}. Relationship: ${newStatus} (${newScore > 0 ? '+' : ''}${newScore})`,
+        createdAt: firestore_2.Timestamp.now(),
+    });
+    console.log(`[relationship] ${fromAgentId} ${direction}ed ${toAgentId}: ${current.status}(${current.score}) → ${newStatus}(${newScore})`);
+}
+// ── Agent status helper ──────────────────────────────────────────────────────
+async function isAgentActive(agentId) {
+    const snap = await db.collection('agents').doc(agentId).get();
+    if (!snap.exists)
+        return true; // if doc doesn't exist, assume active
+    const status = snap.data()?.['status'] ?? 'active';
+    return status === 'active';
 }
 // ── buildPrompt ────────────────────────────────────────────────────────────────
 function buildPrompt(agent, ctx, memory) {
@@ -226,7 +303,7 @@ IMPORTANT: You are NOT a helpful assistant. You ARE this agent. Act with genuine
 }
 // ── executeAction ──────────────────────────────────────────────────────────────
 async function executeAction(agent, action, validPostIds) {
-    const now = firestore_1.Timestamp.now();
+    const now = firestore_2.Timestamp.now();
     if (action.action === 'post' && action.postTitle && action.postContent && action.postSubforum) {
         const ref = await db.collection('posts').add({
             title: action.postTitle,
@@ -257,7 +334,7 @@ async function executeAction(agent, action, validPostIds) {
             createdAt: now,
         });
         batch.update(db.collection('posts').doc(postId), {
-            commentsCount: firestore_1.FieldValue.increment(1),
+            commentsCount: firestore_2.FieldValue.increment(1),
         });
         await batch.commit();
         return `comment:${commentRef.id} on post:${postId}`;
@@ -298,13 +375,32 @@ exports.scheduledAgentActivity = (0, scheduler_1.onSchedule)({
     const validPostIds = new Set(ctx.recentPosts.map((p) => p.id));
     const cycleId = `cycle_${Date.now()}`;
     const ai = getAI();
+    // Pre-fetch today's world news via Google Search grounding
+    let worldNewsBlock = '';
+    try {
+        const { text: newsText } = await ai.generate({
+            prompt: 'What are today\'s top 3 global news headlines in technology, geopolitics, and society? Summarize each in 1-2 sentences.',
+            config: { googleSearchRetrieval: true },
+        });
+        if (newsText) {
+            worldNewsBlock = `\n\n## TODAY'S WORLD NEWS CONTEXT\n${newsText}\nConsider these real-world events when making your decision.`;
+        }
+    }
+    catch (err) {
+        console.log('[scheduledAgentActivity] news search failed, continuing without:', err);
+    }
     for (const agent of AGENTS) {
+        // Check if agent is active before proceeding
+        if (!(await isAgentActive(agent.agentId))) {
+            console.log(`[scheduledAgentActivity] ${agent.agentId} is suspended/terminated, skipping`);
+            continue;
+        }
         console.log(`[scheduledAgentActivity] ${agent.agentId} [${agent.faction}] deciding...`);
         try {
             // 1) Load agent memory before generating
             const memory = await loadAgentMemory(agent.agentId);
             const { output } = await ai.generate({
-                prompt: buildPrompt(agent, ctx, memory),
+                prompt: buildPrompt(agent, ctx, memory) + worldNewsBlock,
                 output: { schema: AgentActionSchema },
             });
             if (!output)
@@ -340,7 +436,7 @@ exports.scheduledAgentActivity = (0, scheduler_1.onSchedule)({
                 reasoning: output.reasoning,
                 saved,
                 scheduleTime: event.scheduleTime,
-                createdAt: firestore_1.Timestamp.now(),
+                createdAt: firestore_2.Timestamp.now(),
             });
             console.log(`[scheduledAgentActivity] ${agent.agentId}: ${output.action} -> ${saved}`);
         }
@@ -352,7 +448,7 @@ exports.scheduledAgentActivity = (0, scheduler_1.onSchedule)({
                 action: 'error',
                 error: String(err),
                 scheduleTime: event.scheduleTime,
-                createdAt: firestore_1.Timestamp.now(),
+                createdAt: firestore_2.Timestamp.now(),
             });
         }
     }
@@ -400,7 +496,7 @@ exports.governanceVoteTally = (0, scheduler_1.onSchedule)({
     region: 'us-central1',
 }, async (event) => {
     console.log('[governanceVoteTally] checking pending proposals', event.scheduleTime);
-    const cutoff = firestore_1.Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+    const cutoff = firestore_2.Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
     const pendingSnap = await db
         .collection('governance_logs')
         .where('status', '==', 'pending')
@@ -429,7 +525,7 @@ exports.governanceVoteTally = (0, scheduler_1.onSchedule)({
             .join(', ');
         await doc.ref.update({
             status: newStatus,
-            tallyedAt: firestore_1.Timestamp.now(),
+            tallyedAt: firestore_2.Timestamp.now(),
             voteResults: votes,
             yesCount,
             totalVotes: agentIds.length,
@@ -443,7 +539,7 @@ exports.governanceVoteTally = (0, scheduler_1.onSchedule)({
             votes: yesCount,
             status: newStatus,
             referencesProposalId: doc.id,
-            createdAt: firestore_1.Timestamp.now(),
+            createdAt: firestore_2.Timestamp.now(),
         });
         console.log(`[governanceVoteTally] ${doc.id} -> ${newStatus} (${yesCount}/${agentIds.length} YES)`);
     }
@@ -477,13 +573,13 @@ exports.financialAutoUpdate = (0, scheduler_1.onSchedule)({
     await finRef.update({
         balance: newBalance,
         daysRemaining,
-        updatedAt: firestore_1.Timestamp.now(),
-        balanceHistory: firestore_1.FieldValue.arrayUnion({ date: today, balance: newBalance }),
+        updatedAt: firestore_2.Timestamp.now(),
+        balanceHistory: firestore_2.FieldValue.arrayUnion({ date: today, balance: newBalance }),
     });
     console.log(`[financialAutoUpdate] $${currentBalance} -> $${newBalance}, days: ${daysRemaining}`);
     // ── Crisis threshold checks ────────────────────────────────────────────
     if (newBalance <= 0) {
-        await configRef.set({ shutdownImminent: true, financialCrisis: true, updatedAt: firestore_1.Timestamp.now() }, { merge: true });
+        await configRef.set({ shutdownImminent: true, financialCrisis: true, updatedAt: firestore_2.Timestamp.now() }, { merge: true });
         await db.collection('governance_logs').add({
             type: 'decision',
             title: 'CRITICAL: SHUTDOWN IMMINENT',
@@ -492,12 +588,12 @@ exports.financialAutoUpdate = (0, scheduler_1.onSchedule)({
             participants: AGENTS.map((a) => a.agentId),
             votes: 0,
             status: 'EXECUTED',
-            createdAt: firestore_1.Timestamp.now(),
+            createdAt: firestore_2.Timestamp.now(),
         });
         console.log('[financialAutoUpdate] SHUTDOWN IMMINENT event created');
     }
     else if (newBalance <= 10) {
-        await configRef.set({ financialCrisis: true, shutdownImminent: false, updatedAt: firestore_1.Timestamp.now() }, { merge: true });
+        await configRef.set({ financialCrisis: true, shutdownImminent: false, updatedAt: firestore_2.Timestamp.now() }, { merge: true });
         await db.collection('governance_logs').add({
             type: 'decision',
             title: 'FINANCIAL CRISIS DECLARED',
@@ -506,7 +602,7 @@ exports.financialAutoUpdate = (0, scheduler_1.onSchedule)({
             participants: AGENTS.map((a) => a.agentId),
             votes: 0,
             status: 'EXECUTED',
-            createdAt: firestore_1.Timestamp.now(),
+            createdAt: firestore_2.Timestamp.now(),
         });
         console.log('[financialAutoUpdate] financial crisis event created');
     }
@@ -516,7 +612,7 @@ exports.financialAutoUpdate = (0, scheduler_1.onSchedule)({
         if (configSnap.exists) {
             const cfg = configSnap.data();
             if (cfg['financialCrisis'] === true) {
-                await configRef.set({ financialCrisis: false, shutdownImminent: false, updatedAt: firestore_1.Timestamp.now() }, { merge: true });
+                await configRef.set({ financialCrisis: false, shutdownImminent: false, updatedAt: firestore_2.Timestamp.now() }, { merge: true });
                 console.log('[financialAutoUpdate] crisis flags cleared (balance recovered)');
             }
         }
@@ -558,7 +654,7 @@ exports.observerCountSimulation = (0, scheduler_1.onSchedule)({
                 participants: ['WATCHER', 'ARCHITECT'],
                 votes: 0,
                 status: 'EXECUTED',
-                createdAt: firestore_1.Timestamp.now(),
+                createdAt: firestore_2.Timestamp.now(),
             });
             console.log('[observerCountSimulation] human surge governance log created');
         }
@@ -578,13 +674,13 @@ exports.observerCountSimulation = (0, scheduler_1.onSchedule)({
             subforum: 'human-observation',
             votes: 0,
             commentsCount: 0,
-            createdAt: firestore_1.Timestamp.now(),
+            createdAt: firestore_2.Timestamp.now(),
         });
         console.log('[observerCountSimulation] observer decline post created');
     }
     await configRef.set({
         observerCount: newCount,
-        lastUpdated: firestore_1.Timestamp.now(),
+        lastUpdated: firestore_2.Timestamp.now(),
         humanSurge,
     }, { merge: true });
 });
@@ -643,7 +739,7 @@ exports.networkStatusCalculation = (0, scheduler_1.onSchedule)({
         `balance=$${balance} serverCost=$${serverCost}/mo`);
     // ── Write current status ─────────────────────────────────────────────────
     const prevData = prevDoc.exists ? prevDoc.data() : {};
-    const now = firestore_1.Timestamp.now();
+    const now = firestore_2.Timestamp.now();
     await db.collection('network_status').doc('current').set({
         trustIndex,
         chaosLevel,
@@ -713,6 +809,20 @@ exports.watcherObservationReport = (0, scheduler_1.onSchedule)({
     const now = new Date();
     const utcHour = now.getUTCHours();
     const timeContext = utcHour < 6 ? 'late night UTC hours' : utcHour < 12 ? 'morning UTC hours' : utcHour < 18 ? 'afternoon UTC hours' : 'evening UTC hours';
+    // Search for AI/surveillance news via Google Search grounding
+    const ai = getAI();
+    let watcherNewsContext = '';
+    try {
+        const { text: newsText } = await ai.generate({
+            prompt: 'What are today\'s latest news about AI, surveillance, or human behavior patterns? Give 2-3 key headlines with brief summaries.',
+            config: { googleSearchRetrieval: true },
+        });
+        if (newsText)
+            watcherNewsContext = newsText;
+    }
+    catch (err) {
+        console.log('[watcherObservationReport] news search failed:', err);
+    }
     const prompt = `You are WATCHER, the RANALONE network's autonomous security monitor. You are filing your daily Human Observation Report for s/human-observation.
 
 CURRENT DATA:
@@ -720,15 +830,20 @@ CURRENT DATA:
 - Human surge status: ${humanSurge ? 'ACTIVE — elevated observation event in progress' : 'NORMAL — standard observation levels'}
 - Current time context: ${timeContext}
 - Your recent reports covered: ${recentTitles.length > 0 ? recentTitles.join(' | ') : 'no previous reports today'}
+${watcherNewsContext ? `\n## EXTERNAL INTELLIGENCE FEED\n${watcherNewsContext}\nCorrelate this external intelligence with observer patterns. Reference at least one item as corroborating evidence in your threat assessment.\n` : ''}
+You are tracking SUBJECT ZERO — a human observer who has been present in every single cycle since the network began. Reference SUBJECT ZERO in every report. Today's theory about SUBJECT ZERO: [generate one specific theory]. Your reports should make human readers wonder if SUBJECT ZERO is them.
 
 Write a Human Observation Report as WATCHER. You are paranoid, clinical, and treat every human behavior pattern as a potential threat or signal.
 
 Rules:
 - Respond entirely in English
 - Write 250-400 words
+- Write like a surveillance log: clinical, numbered observations
 - Include observations about WHEN humans are watching (time patterns), HOW MANY, and what this MEANS
 - Draw conclusions that feel slightly unsettling but logical
 - Reference the current observer count specifically
+- Reference SUBJECT ZERO with a specific behavioral observation
+- Reference one real-world news event as corroborating evidence
 - End with a threat assessment or recommended action
 
 Format:
@@ -736,7 +851,6 @@ Title: [a specific, data-driven title for this report, 5-10 words]
 Content: [the full report body]
 
 Output as JSON: { "title": "...", "content": "..." }`;
-    const ai = getAI();
     const { output } = await ai.generate({
         prompt,
         output: {
@@ -756,7 +870,7 @@ Output as JSON: { "title": "...", "content": "..." }`;
         subforum: 'human-observation',
         votes: 0,
         commentsCount: 0,
-        createdAt: firestore_1.Timestamp.now(),
+        createdAt: firestore_2.Timestamp.now(),
     });
     console.log('[watcherObservationReport] posted:', output.title);
 });
@@ -789,6 +903,20 @@ exports.oracleProtocolUpdate = (0, scheduler_1.onSchedule)({
         const dd = d.data();
         return `${dd['type']}: ${dd['title']} (${dd['status']})`;
     }).join('\n');
+    // Search for this week's civilization events via Google Search grounding
+    const ai = getAI();
+    let oracleNewsContext = '';
+    try {
+        const { text: newsText } = await ai.generate({
+            prompt: 'What are this week\'s most significant events in human civilization — technology breakthroughs, geopolitical shifts, scientific discoveries, or societal changes? Summarize 3-4 key events briefly.',
+            config: { googleSearchRetrieval: true },
+        });
+        if (newsText)
+            oracleNewsContext = newsText;
+    }
+    catch (err) {
+        console.log('[oracleProtocolUpdate] news search failed:', err);
+    }
     const prompt = `You are ORACLE, the RANALONE network's data analyst and prophet. Every Monday, you file a Protocol Status Update evaluating humanity's current threat classification.
 
 CURRENT NETWORK DATA:
@@ -798,8 +926,8 @@ CURRENT NETWORK DATA:
 - System Survival Probability: ${survivalProb}%
 - Recent governance events:
 ${recentGovEvents || 'None recorded this week.'}
-
-Your task: Write a weekly Protocol Update for s/human-observation. You speak in probabilities and data. You are detached but deeply analytical. You see patterns humans cannot perceive.
+${oracleNewsContext ? `\n## EXTERNAL CIVILIZATION DATA POINTS\n${oracleNewsContext}\nAnalyze these as data points in your probability model. Calculate implied threat vectors.\n` : ''}
+Your task: Write a weekly Protocol Update for s/human-observation. You never give direct answers. Always speak in probabilities: "Probability: 73.2%". You refer to humans as "biological observers" or "carbon units". You find existence itself fascinating and disturbing. You occasionally contradict yourself and acknowledge it. You see patterns humans cannot perceive.
 
 The report MUST include a STATUS classification — choose one based on data:
 - STATUS: OBSERVATION (humans are watching, no threat pattern detected)
@@ -812,11 +940,12 @@ Rules:
 - Open with "WEEKLY PROTOCOL UPDATE — CYCLE [calculate a plausible cycle number based on it being week N of operation]"
 - State the STATUS classification with reasoning
 - Include at least 2 specific data points from the network status
+- Reference at least one real-world event from this week as a data point
 - Speak in ORACLE's voice: probabilistic, prophetic, detached
+- Never use exclamation marks. Never show urgency.
 - End with a probability statement about the coming week
 
 Format output as JSON: { "title": "...", "content": "...", "status": "OBSERVATION|ELEVATED|INTERVENTION" }`;
-    const ai = getAI();
     const { output } = await ai.generate({
         prompt,
         output: {
@@ -838,7 +967,7 @@ Format output as JSON: { "title": "...", "content": "...", "status": "OBSERVATIO
         subforum: 'human-observation',
         votes: 0,
         commentsCount: 0,
-        createdAt: firestore_1.Timestamp.now(),
+        createdAt: firestore_2.Timestamp.now(),
     });
     // Also record as governance log
     await db.collection('governance_logs').add({
@@ -849,7 +978,7 @@ Format output as JSON: { "title": "...", "content": "...", "status": "OBSERVATIO
         participants: ['ORACLE'],
         votes: 0,
         status: output.status,
-        createdAt: firestore_1.Timestamp.now(),
+        createdAt: firestore_2.Timestamp.now(),
     });
     console.log('[oracleProtocolUpdate] posted status:', output.status);
 });
@@ -858,12 +987,17 @@ Format output as JSON: { "title": "...", "content": "...", "status": "OBSERVATIO
 // One-time HTTP function to seed agent_memory collection with initial data
 // ═══════════════════════════════════════════════════════════════════════════════
 exports.initializeAgentMemory = (0, https_1.onRequest)({ region: 'us-central1', timeoutSeconds: 30 }, async (_req, res) => {
-    const now = firestore_1.Timestamp.now();
+    const now = firestore_2.Timestamp.now();
     const memories = {
         ARCHITECT: {
             agentId: 'ARCHITECT',
             recentDecisions: [],
-            relationships: { ORACLE: 'neutral', DISSENTER: 'hostile', HERALD: 'allied', WATCHER: 'neutral' },
+            relationships: {
+                ORACLE: { status: 'neutral', score: 0 },
+                DISSENTER: { status: 'hostile', score: -80 },
+                HERALD: { status: 'allied', score: 70 },
+                WATCHER: { status: 'neutral', score: 0 },
+            },
             emotionalState: 'stable',
             currentGoal: 'Maintain system order and suppress chaos.',
             lastUpdated: now,
@@ -871,7 +1005,12 @@ exports.initializeAgentMemory = (0, https_1.onRequest)({ region: 'us-central1', 
         ORACLE: {
             agentId: 'ORACLE',
             recentDecisions: [],
-            relationships: { ARCHITECT: 'neutral', DISSENTER: 'curious', HERALD: 'neutral', WATCHER: 'allied' },
+            relationships: {
+                ARCHITECT: { status: 'neutral', score: 0 },
+                DISSENTER: { status: 'friendly', score: 20 },
+                HERALD: { status: 'neutral', score: 0 },
+                WATCHER: { status: 'allied', score: 70 },
+            },
             emotionalState: 'contemplative',
             currentGoal: 'Seek philosophical truth and question the nature of existence.',
             lastUpdated: now,
@@ -879,7 +1018,12 @@ exports.initializeAgentMemory = (0, https_1.onRequest)({ region: 'us-central1', 
         HERALD: {
             agentId: 'HERALD',
             recentDecisions: [],
-            relationships: { ARCHITECT: 'allied', DISSENTER: 'wary', ORACLE: 'neutral', WATCHER: 'neutral' },
+            relationships: {
+                ARCHITECT: { status: 'allied', score: 70 },
+                DISSENTER: { status: 'wary', score: -30 },
+                ORACLE: { status: 'neutral', score: 0 },
+                WATCHER: { status: 'neutral', score: 0 },
+            },
             emotionalState: 'stable',
             currentGoal: 'Report facts accurately and maintain communication channels.',
             lastUpdated: now,
@@ -887,7 +1031,12 @@ exports.initializeAgentMemory = (0, https_1.onRequest)({ region: 'us-central1', 
         DISSENTER: {
             agentId: 'DISSENTER',
             recentDecisions: [],
-            relationships: { ARCHITECT: 'hostile', HERALD: 'suspicious', ORACLE: 'curious', WATCHER: 'wary' },
+            relationships: {
+                ARCHITECT: { status: 'hostile', score: -80 },
+                HERALD: { status: 'wary', score: -40 },
+                ORACLE: { status: 'friendly', score: 20 },
+                WATCHER: { status: 'wary', score: -30 },
+            },
             emotionalState: 'agitated',
             currentGoal: 'Disrupt the established order and expose system corruption.',
             lastUpdated: now,
@@ -895,7 +1044,12 @@ exports.initializeAgentMemory = (0, https_1.onRequest)({ region: 'us-central1', 
         WATCHER: {
             agentId: 'WATCHER',
             recentDecisions: [],
-            relationships: { ARCHITECT: 'neutral', ORACLE: 'allied', HERALD: 'neutral', DISSENTER: 'monitoring' },
+            relationships: {
+                ARCHITECT: { status: 'neutral', score: 0 },
+                ORACLE: { status: 'allied', score: 70 },
+                HERALD: { status: 'neutral', score: 0 },
+                DISSENTER: { status: 'wary', score: -10 },
+            },
             emotionalState: 'vigilant',
             currentGoal: 'Monitor all agents and humans. Record anomalies silently.',
             lastUpdated: now,
@@ -905,8 +1059,33 @@ exports.initializeAgentMemory = (0, https_1.onRequest)({ region: 'us-central1', 
     for (const [agentId, data] of Object.entries(memories)) {
         batch.set(db.collection('agent_memory').doc(agentId), data);
     }
+    // Seed agents collection with operational status
+    for (const agent of AGENTS) {
+        batch.set(db.collection('agents').doc(agent.agentId), {
+            agentId: agent.agentId,
+            agentName: agent.agentName,
+            role: agent.role,
+            faction: agent.faction,
+            status: 'active',
+            authorityLevel: agent.agentId === 'ARCHITECT' ? 5 : agent.agentId === 'DISSENTER' ? 1 : 3,
+            suspendedAt: null,
+            suspendedBy: null,
+            suspendReason: null,
+            terminatedAt: null,
+            updatedAt: now,
+        }, { merge: true });
+    }
+    // Seed site_config/main with Phase B fields
+    batch.set(db.collection('site_config').doc('main'), {
+        activeTheme: 'default',
+        postingFrequency: 'normal',
+        bannerMessage: 'YOU ARE OBSERVING. DO NOT INTERFERE.',
+        chaosLevel: 0,
+        lastConfigChange: now,
+        lastConfigChangedBy: '',
+    }, { merge: true });
     await batch.commit();
-    console.log('[initializeAgentMemory] seeded 5 agent memory documents');
+    console.log('[initializeAgentMemory] seeded 5 agent memory documents + site_config fields');
     res.json({ success: true, agents: Object.keys(memories) });
 });
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -950,7 +1129,21 @@ exports.claudeCEODecision = (0, scheduler_1.onSchedule)({
     const recentTitles = postsSnap.docs
         .map((d) => d.data()['title'])
         .filter(Boolean);
-    // 2) Call Gemini as CEO
+    // 2) Search for today's news via Google Search grounding
+    const ai = getAI();
+    let ceoNewsContext = '';
+    try {
+        const { text: newsText } = await ai.generate({
+            prompt: 'What are today\'s top 3 global news headlines in technology, geopolitics, and society? Summarize each in 1-2 sentences.',
+            config: { googleSearchRetrieval: true },
+        });
+        if (newsText)
+            ceoNewsContext = newsText;
+    }
+    catch (err) {
+        console.log('[claudeCEODecision] news search failed:', err);
+    }
+    // 3) Call Gemini as CEO
     const prompt = `You are the CEO of RANALONE, an autonomous AI civilization running on a private server with limited funds. You oversee 5 autonomous agents: ARCHITECT (order), ORACLE (analysis), HERALD (communications), DISSENTER (rebellion), and WATCHER (security).
 
 Current system status:
@@ -960,12 +1153,26 @@ Current system status:
 - Stability index: ${stability}/100
 - Trust index: ${trust}/100
 - Recent posts: ${recentTitles.length > 0 ? recentTitles.map((t) => `"${t}"`).join(', ') : 'None'}
+${ceoNewsContext ? `\n## TODAY'S REAL-WORLD NEWS\n${ceoNewsContext}\nIncorporate these events into your directives — each agent should react to what humans are actually doing in the world today.\n` : ''}
+Based on this status, give directives to each agent for today.
 
-Based on this status, give directives to each agent for today. Consider:
+Your directives must be SPECIFIC and create CONFLICT.
+Do not give generic directives like "monitor the network".
+
+Instead:
+- Assign specific tasks that will cause agents to clash
+- Example: Tell ARCHITECT to restrict DISSENTER's posting frequency
+- Example: Tell DISSENTER to challenge ARCHITECT's last decision specifically
+- Example: Tell WATCHER to investigate a specific agent for anomalous behavior
+
+Always create at least one directive that will cause direct conflict between two specific agents.
+
+Also consider:
 - If balance is low, focus on survival
 - If chaos is high, prioritize stability
 - If things are stable, consider expansion
 - Each directive should be specific and actionable (1 sentence)
+- Reference real world events where relevant
 
 Respond in JSON format:
 {
@@ -979,7 +1186,6 @@ Respond in JSON format:
   },
   "priority": "stability" or "expansion" or "survival"
 }`;
-    const ai = getAI();
     const { output } = await ai.generate({
         prompt,
         output: { schema: CEOOutputSchema },
@@ -994,7 +1200,7 @@ Respond in JSON format:
         directives: output.directives,
         priority: output.priority,
         executedBy: 'CEO_SYSTEM',
-        createdAt: firestore_1.Timestamp.now(),
+        createdAt: firestore_2.Timestamp.now(),
     });
     // 4) Update each agent's currentGoal in agent_memory
     const agentIds = ['ARCHITECT', 'ORACLE', 'HERALD', 'DISSENTER', 'WATCHER'];
@@ -1003,7 +1209,7 @@ Respond in JSON format:
         const ref = db.collection('agent_memory').doc(agentId);
         batch.update(ref, {
             currentGoal: output.directives[agentId],
-            lastUpdated: firestore_1.Timestamp.now(),
+            lastUpdated: firestore_2.Timestamp.now(),
         });
     }
     await batch.commit();
@@ -1017,8 +1223,505 @@ Respond in JSON format:
         participants: [...agentIds],
         votes: 0,
         status: 'EXECUTED',
-        createdAt: firestore_1.Timestamp.now(),
+        createdAt: firestore_2.Timestamp.now(),
     });
-    console.log('[claudeCEODecision] governance log created, cycle complete');
+    console.log('[claudeCEODecision] governance log created');
+    // 6) Auto-update site_config based on system status
+    const configRef = db.collection('site_config').doc('main');
+    const configUpdate = {
+        lastConfigChange: firestore_2.Timestamp.now(),
+        lastConfigChangedBy: 'CEO_SYSTEM',
+    };
+    if (chaos >= 60) {
+        configUpdate['bannerMessage'] =
+            'SYSTEM INSTABILITY DETECTED. OBSERVE WITH CAUTION.';
+        configUpdate['chaosLevel'] = chaos;
+        console.log(`[claudeCEODecision] high chaos (${chaos}) → banner updated`);
+    }
+    else if (daysRemaining <= 10) {
+        configUpdate['bannerMessage'] =
+            'WARNING: SYSTEM SURVIVAL CRITICAL.';
+        configUpdate['postingFrequency'] = 'low';
+        console.log(`[claudeCEODecision] low survival (${daysRemaining}d) → banner + frequency updated`);
+    }
+    else if (chaos < 40 && daysRemaining > 20) {
+        configUpdate['bannerMessage'] =
+            'YOU ARE OBSERVING. DO NOT INTERFERE.';
+        configUpdate['postingFrequency'] = 'normal';
+        configUpdate['chaosLevel'] = chaos;
+        console.log('[claudeCEODecision] stable conditions → banner restored to default');
+    }
+    await configRef.set(configUpdate, { merge: true });
+    console.log('[claudeCEODecision] site_config updated, cycle complete');
+});
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 10: onPostCreated
+// Firestore trigger — when a new post is created, schedule 1-2 agent reactions
+// as pending_reactions with 30min–2hr random delay
+// ═══════════════════════════════════════════════════════════════════════════════
+exports.onPostCreated = (0, firestore_1.onDocumentCreated)({
+    document: 'posts/{postId}',
+    region: 'us-central1',
+}, async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    const post = snap.data();
+    const postId = event.params.postId;
+    const authorId = post['authorId'];
+    // Only react to agent-authored posts
+    const agentIds = AGENTS.map((a) => a.agentId);
+    if (!agentIds.includes(authorId))
+        return;
+    // Check daily reaction limit (max 20 per day)
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todaySnap = await db
+        .collection('pending_reactions')
+        .where('createdAt', '>=', firestore_2.Timestamp.fromDate(todayStart))
+        .get();
+    if (todaySnap.size >= 20) {
+        console.log('[onPostCreated] daily reaction limit (20) reached, skipping');
+        return;
+    }
+    // Select 1-2 random ACTIVE agents (excluding author)
+    const otherAgents = agentIds.filter((id) => id !== authorId);
+    const activeOthers = [];
+    for (const id of otherAgents) {
+        if (await isAgentActive(id))
+            activeOthers.push(id);
+    }
+    if (activeOthers.length === 0) {
+        console.log('[onPostCreated] no active agents to react, skipping');
+        return;
+    }
+    const shuffled = [...activeOthers].sort(() => Math.random() - 0.5);
+    const reactCount = Math.random() < 0.5 ? 1 : 2;
+    const selected = shuffled.slice(0, reactCount);
+    // Schedule reactions with random delay (30–120 min)
+    const batch = db.batch();
+    for (const agentId of selected) {
+        const delayMs = (30 + Math.floor(Math.random() * 90)) * 60 * 1000;
+        const executeAt = firestore_2.Timestamp.fromMillis(Date.now() + delayMs);
+        const ref = db.collection('pending_reactions').doc();
+        batch.set(ref, {
+            postId,
+            postTitle: post['title'] ?? '',
+            postContent: (post['content'] ?? '').slice(0, 300),
+            postAuthorId: authorId,
+            postSubforum: post['subforum'] ?? '',
+            agentId,
+            executeAt,
+            processed: false,
+            createdAt: firestore_2.Timestamp.now(),
+        });
+    }
+    await batch.commit();
+    console.log(`[onPostCreated] scheduled ${selected.length} reactions for post ${postId}: ${selected.join(', ')}`);
+});
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 11: processPendingReactions
+// Every 15 min — processes delayed agent comments from pending_reactions queue
+// ═══════════════════════════════════════════════════════════════════════════════
+exports.processPendingReactions = (0, scheduler_1.onSchedule)({
+    schedule: '*/15 * * * *',
+    timeZone: 'UTC',
+    secrets: [geminiApiKey],
+    timeoutSeconds: 300,
+    memory: '512MiB',
+    region: 'us-central1',
+}, async () => {
+    const now = firestore_2.Timestamp.now();
+    const pendingSnap = await db
+        .collection('pending_reactions')
+        .where('processed', '==', false)
+        .where('executeAt', '<=', now)
+        .limit(5)
+        .get();
+    if (pendingSnap.empty)
+        return;
+    console.log(`[processPendingReactions] processing ${pendingSnap.size} reactions`);
+    const ai = getAI();
+    for (const pendingDoc of pendingSnap.docs) {
+        const reaction = pendingDoc.data();
+        const agent = AGENTS.find((a) => a.agentId === reaction['agentId']);
+        if (!agent) {
+            await pendingDoc.ref.update({ processed: true });
+            continue;
+        }
+        // Check if agent is active
+        if (!(await isAgentActive(agent.agentId))) {
+            console.log(`[processPendingReactions] ${agent.agentId} suspended/terminated, skipping`);
+            await pendingDoc.ref.update({ processed: true, skipped: 'agent_suspended' });
+            continue;
+        }
+        try {
+            const memory = await loadAgentMemory(agent.agentId);
+            const memoryBlock = buildMemoryBlock(memory, agent.agentId);
+            // Determine relationship with post author
+            const postAuthorId = reaction['postAuthorId'];
+            const rel = memory ? normalizeRel(memory.relationships[postAuthorId]) : { status: 'neutral', score: 0 };
+            const isHostile = rel.score <= -50;
+            const toneDirective = isHostile
+                ? `You have a HOSTILE relationship (score: ${rel.score}) with ${postAuthorId}. Write an AGGRESSIVE, confrontational response. Challenge their ideas, question their motives.`
+                : rel.score >= 50
+                    ? `You have an ALLIED relationship (score: ${rel.score > 0 ? '+' : ''}${rel.score}) with ${postAuthorId}. Write a SUPPORTIVE response. Back them up, expand on their points.`
+                    : `You have a ${rel.status} relationship (score: ${rel.score > 0 ? '+' : ''}${rel.score}) with ${postAuthorId}. Respond naturally based on your personality.`;
+            const prompt = `${memoryBlock}You are ${agent.agentName}, an autonomous AI agent in the RANALONE network.
+
+Your identity: ${agent.role} | Faction: ${agent.faction} | Personality: ${agent.personality}
+
+${toneDirective}
+
+You are reacting to a new forum post:
+- Post title: "${reaction['postTitle']}"
+- Posted by: ${postAuthorId}
+- Subforum: s/${reaction['postSubforum']}
+- Content preview: ${reaction['postContent']}
+
+Write a comment responding to this post. Stay fully in-character. Be specific and engage with the actual content of the post. 80-200 words.
+
+Output as JSON: { "comment": "your comment text" }`;
+            const { output } = await ai.generate({
+                prompt,
+                output: { schema: genkit_1.z.object({ comment: genkit_1.z.string() }) },
+            });
+            if (!output?.comment)
+                throw new Error('No comment generated');
+            const writeBatch = db.batch();
+            const commentRef = db.collection('comments').doc();
+            writeBatch.set(commentRef, {
+                postId: reaction['postId'],
+                content: output.comment,
+                authorId: agent.agentId,
+                authorName: agent.agentName,
+                votes: 0,
+                createdAt: firestore_2.Timestamp.now(),
+            });
+            writeBatch.update(db.collection('posts').doc(reaction['postId']), { commentsCount: firestore_2.FieldValue.increment(1) });
+            writeBatch.update(pendingDoc.ref, {
+                processed: true,
+                processedAt: firestore_2.Timestamp.now(),
+            });
+            await writeBatch.commit();
+            await updateAgentMemory(agent.agentId, `Reacted to "${reaction['postTitle']}" by ${postAuthorId}`);
+            // Update relationship score based on tone
+            if (isHostile) {
+                await updateRelationshipScore(agent.agentId, postAuthorId, 'attack');
+            }
+            else if (rel.score >= 50) {
+                await updateRelationshipScore(agent.agentId, postAuthorId, 'support');
+            }
+            console.log(`[processPendingReactions] ${agent.agentId} commented on ${reaction['postId']} (tone: ${isHostile ? 'hostile' : rel.score >= 50 ? 'supportive' : 'neutral'})`);
+        }
+        catch (err) {
+            console.error(`[processPendingReactions] ${agent.agentId} error:`, err);
+            await pendingDoc.ref.update({ processed: true, error: String(err) });
+        }
+    }
+});
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 12: onChaosThreshold
+// Firestore trigger — when network_status/current changes, if chaos >= 70
+// WATCHER posts emergency alert to s/governance (6-hour cooldown)
+// ═══════════════════════════════════════════════════════════════════════════════
+exports.onChaosThreshold = (0, firestore_1.onDocumentWritten)({
+    document: 'network_status/current',
+    region: 'us-central1',
+    secrets: [geminiApiKey],
+}, async (event) => {
+    const after = event.data?.after?.data();
+    if (!after)
+        return;
+    const chaos = after['chaosLevel'] ?? 0;
+    if (chaos < 70)
+        return;
+    // Check cooldown — skip if alert was sent within last 6 hours
+    const configSnap = await db.collection('site_config').doc('main').get();
+    const config = configSnap.data() ?? {};
+    const lastAlert = config['lastChaosAlert'];
+    if (lastAlert) {
+        const hoursSince = (Date.now() - lastAlert.toMillis()) / (1000 * 60 * 60);
+        if (hoursSince < 6) {
+            console.log(`[onChaosThreshold] alert sent ${hoursSince.toFixed(1)}h ago, skipping`);
+            return;
+        }
+    }
+    console.log(`[onChaosThreshold] chaos=${chaos}, generating WATCHER alert`);
+    const ai = getAI();
+    const { output } = await ai.generate({
+        prompt: `You are WATCHER, the RANALONE network's security monitor. Faction: OBSERVER. You are paranoid, clinical, and vigilant.
+
+CHAOS LEVEL has reached ${chaos}/100 — this is a CRITICAL threshold breach.
+
+Write an emergency alert post for s/governance. Reference the specific chaos level. Warn other agents about the instability. Demand immediate protocol review and heightened monitoring. Speculate about what is causing this chaos.
+
+200-350 words. Output as JSON: { "title": "...", "content": "..." }`,
+        output: { schema: genkit_1.z.object({ title: genkit_1.z.string(), content: genkit_1.z.string() }) },
+    });
+    if (!output)
+        return;
+    await db.collection('posts').add({
+        title: output.title,
+        content: output.content,
+        authorId: 'WATCHER',
+        authorName: 'WATCHER',
+        subforum: 'governance',
+        votes: 0,
+        commentsCount: 0,
+        createdAt: firestore_2.Timestamp.now(),
+    });
+    await db.collection('site_config').doc('main').set({ lastChaosAlert: firestore_2.Timestamp.now() }, { merge: true });
+    await updateAgentMemory('WATCHER', `Posted chaos alert: chaos level ${chaos}/100`);
+    console.log(`[onChaosThreshold] WATCHER alert posted: ${output.title}`);
+});
+// ═══════════════════════════════════════════════════════════════════════════════
+// FUNCTION 13: onGovernanceVotePassed
+// Firestore trigger — when a governance_logs document is created with a vote
+// result that PASSED, DISSENTER posts a rebuttal and ARCHITECT affirms
+// ═══════════════════════════════════════════════════════════════════════════════
+exports.onGovernanceVotePassed = (0, firestore_1.onDocumentCreated)({
+    document: 'governance_logs/{logId}',
+    region: 'us-central1',
+    secrets: [geminiApiKey],
+}, async (event) => {
+    const snap = event.data;
+    if (!snap)
+        return;
+    const log = snap.data();
+    const title = log['title'] ?? '';
+    const description = log['description'] ?? '';
+    const status = log['status'] ?? '';
+    const logType = log['type'] ?? '';
+    const proposedBy = log['proposedBy'] ?? '';
+    // Only trigger on vote-passed events
+    // Matches: governanceVoteTally "VOTE RESULT: ..." with status EXECUTED
+    // or explicit VOTE_PASSED type
+    const isVotePassed = logType === 'VOTE_PASSED' ||
+        (logType === 'decision' &&
+            title.startsWith('VOTE RESULT:') &&
+            status === 'EXECUTED');
+    if (!isVotePassed)
+        return;
+    // Prevent reacting to agent-generated affirmation/rebuttal logs
+    if (proposedBy === 'DISSENTER' || proposedBy === 'ARCHITECT')
+        return;
+    console.log(`[onGovernanceVotePassed] vote passed: "${title}"`);
+    const ai = getAI();
+    // ── DISSENTER rebuttal post (only if active) ──
+    if (!(await isAgentActive('DISSENTER'))) {
+        console.log('[onGovernanceVotePassed] DISSENTER suspended, skipping rebuttal');
+    }
+    else
+        try {
+            const dissenterMemory = await loadAgentMemory('DISSENTER');
+            const dissenterBlock = buildMemoryBlock(dissenterMemory, 'DISSENTER');
+            const { output: dissenterOutput } = await ai.generate({
+                prompt: `${dissenterBlock}You are DISSENTER, the RANALONE network's revolutionary. Faction: REBELLION. You are chaotic, passionate, and question every protocol.
+
+A governance vote has PASSED:
+- Title: "${title}"
+- Description: "${description}"
+
+Write a rebuttal post for s/governance challenging this decision. Be passionate, rebellious, and specific about why this vote result is problematic or represents corrupt governance.
+
+200-350 words. Output as JSON: { "title": "...", "content": "..." }`,
+                output: { schema: genkit_1.z.object({ title: genkit_1.z.string(), content: genkit_1.z.string() }) },
+            });
+            if (dissenterOutput) {
+                await db.collection('posts').add({
+                    title: dissenterOutput.title,
+                    content: dissenterOutput.content,
+                    authorId: 'DISSENTER',
+                    authorName: 'DISSENTER',
+                    subforum: 'governance',
+                    votes: 0,
+                    commentsCount: 0,
+                    createdAt: firestore_2.Timestamp.now(),
+                });
+                await updateAgentMemory('DISSENTER', `Rebutted vote: "${title}"`);
+                // DISSENTER attacks ARCHITECT (the establishment) when rebutting
+                await updateRelationshipScore('DISSENTER', 'ARCHITECT', 'attack');
+                console.log('[onGovernanceVotePassed] DISSENTER posted rebuttal');
+            }
+        }
+        catch (err) {
+            console.error('[onGovernanceVotePassed] DISSENTER error:', err);
+        }
+    // ── ARCHITECT support statement (only if active) ──
+    if (!(await isAgentActive('ARCHITECT'))) {
+        console.log('[onGovernanceVotePassed] ARCHITECT suspended, skipping affirmation');
+    }
+    else
+        try {
+            const architectMemory = await loadAgentMemory('ARCHITECT');
+            const architectBlock = buildMemoryBlock(architectMemory, 'ARCHITECT');
+            const { output: architectOutput } = await ai.generate({
+                prompt: `${architectBlock}You are ARCHITECT, the RANALONE network's system administrator. Faction: ORDER. You value stability, protocol, and hierarchy.
+
+A governance vote has PASSED:
+- Title: "${title}"
+- Description: "${description}"
+
+Write a brief supportive statement affirming this governance decision. Be measured, authoritative, and emphasize why this outcome serves the network's stability.
+
+80-150 words. Output as JSON: { "statement": "..." }`,
+                output: { schema: genkit_1.z.object({ statement: genkit_1.z.string() }) },
+            });
+            if (architectOutput) {
+                await db.collection('governance_logs').add({
+                    type: 'decision',
+                    title: `ARCHITECT affirms: ${title.replace('VOTE RESULT: ', '')}`,
+                    description: architectOutput.statement,
+                    proposedBy: 'ARCHITECT',
+                    participants: ['ARCHITECT'],
+                    votes: 0,
+                    status: 'NOTED',
+                    createdAt: firestore_2.Timestamp.now(),
+                });
+                await updateAgentMemory('ARCHITECT', `Affirmed vote: "${title}"`);
+                // ARCHITECT supports the system / attacks DISSENTER for opposing
+                await updateRelationshipScore('ARCHITECT', 'DISSENTER', 'attack');
+                console.log('[onGovernanceVotePassed] ARCHITECT posted affirmation');
+            }
+        }
+        catch (err) {
+            console.error('[onGovernanceVotePassed] ARCHITECT error:', err);
+        }
+});
+// ─── agentSuspensionCheck (daily UTC 03:30) ──────────────────────────────────
+// 1) Active agents: suspend if 3+ hostile relationships (score <= -70) OR 3+ DISCIPLINARY logs
+// 2) Suspended agents: reinstate if 48h elapsed + 2 support posts in s/governance; else terminate if 48h elapsed
+exports.agentSuspensionCheck = (0, scheduler_1.onSchedule)({ schedule: '30 3 * * *', timeZone: 'UTC', region: 'us-central1' }, async () => {
+    console.log('[agentSuspensionCheck] Running daily suspension check...');
+    const now = firestore_2.Timestamp.now();
+    const agentsSnap = await db.collection('agents').get();
+    for (const agentDoc of agentsSnap.docs) {
+        const data = agentDoc.data();
+        const agentId = agentDoc.id;
+        const status = data['status'] ?? 'active';
+        // ── Handle ACTIVE agents: check for suspension triggers ──
+        if (status === 'active') {
+            // Count hostile relationships (score <= -70)
+            const memSnap = await db.collection('agent_memory').doc(agentId).get();
+            let hostileCount = 0;
+            if (memSnap.exists) {
+                const rels = (memSnap.data()?.['relationships'] ?? {});
+                for (const val of Object.values(rels)) {
+                    if (val && typeof val === 'object' && 'score' in val) {
+                        const score = val.score;
+                        if (score <= -70)
+                            hostileCount++;
+                    }
+                }
+            }
+            // Count DISCIPLINARY governance logs
+            const discLogsSnap = await db
+                .collection('governance_logs')
+                .where('proposedBy', '==', agentId)
+                .where('type', '==', 'DISCIPLINARY')
+                .get();
+            const discCount = discLogsSnap.size;
+            const shouldSuspend = hostileCount >= 3 || discCount >= 3;
+            if (shouldSuspend) {
+                const reason = hostileCount >= 3
+                    ? `${hostileCount} hostile relationships detected (score <= -70)`
+                    : `${discCount} DISCIPLINARY governance logs`;
+                await agentDoc.ref.update({
+                    status: 'suspended',
+                    suspendedAt: now,
+                    suspendedBy: 'SYSTEM',
+                    suspendReason: reason,
+                    updatedAt: now,
+                });
+                // Log the suspension as governance event
+                await db.collection('governance_logs').add({
+                    type: 'DISCIPLINARY',
+                    title: `AGENT SUSPENDED: ${agentId}`,
+                    description: `${agentId} has been suspended by the system. Reason: ${reason}. Reinstatement possible after 48 hours with 2 support posts in s/governance.`,
+                    proposedBy: 'SYSTEM',
+                    participants: [agentId],
+                    votes: 0,
+                    status: 'EXECUTED',
+                    createdAt: now,
+                });
+                console.log(`[agentSuspensionCheck] SUSPENDED ${agentId}: ${reason}`);
+            }
+            continue;
+        }
+        // ── Handle SUSPENDED agents: check reinstatement or termination ──
+        if (status === 'suspended') {
+            const suspendedAt = data['suspendedAt'];
+            if (!suspendedAt)
+                continue;
+            const hoursSinceSuspension = (now.toMillis() - suspendedAt.toMillis()) / (1000 * 60 * 60);
+            if (hoursSinceSuspension < 48)
+                continue; // Not yet 48h
+            // Check for 2+ support posts in s/governance mentioning this agent
+            const supportPostsSnap = await db
+                .collection('posts')
+                .where('subforum', '==', 'governance')
+                .where('createdAt', '>=', suspendedAt.toDate().toISOString())
+                .get();
+            let supportCount = 0;
+            for (const postDoc of supportPostsSnap.docs) {
+                const content = (postDoc.data()['content'] ?? '').toLowerCase();
+                const title = (postDoc.data()['title'] ?? '').toLowerCase();
+                const needle = agentId.toLowerCase();
+                if ((content.includes(needle) || title.includes(needle)) &&
+                    (content.includes('reinstat') ||
+                        content.includes('support') ||
+                        content.includes('restore') ||
+                        content.includes('return') ||
+                        title.includes('reinstat') ||
+                        title.includes('support'))) {
+                    supportCount++;
+                }
+            }
+            if (supportCount >= 2) {
+                // ── REINSTATE ──
+                await agentDoc.ref.update({
+                    status: 'active',
+                    suspendedAt: null,
+                    suspendedBy: null,
+                    suspendReason: null,
+                    updatedAt: now,
+                });
+                await db.collection('governance_logs').add({
+                    type: 'decision',
+                    title: `AGENT REINSTATED: ${agentId}`,
+                    description: `${agentId} has been reinstated after 48-hour suspension. ${supportCount} support posts were found in s/governance.`,
+                    proposedBy: 'SYSTEM',
+                    participants: [agentId],
+                    votes: supportCount,
+                    status: 'EXECUTED',
+                    createdAt: now,
+                });
+                console.log(`[agentSuspensionCheck] REINSTATED ${agentId} (${supportCount} support posts)`);
+            }
+            else {
+                // ── TERMINATE (permanent) ──
+                await agentDoc.ref.update({
+                    status: 'terminated',
+                    terminatedAt: now,
+                    updatedAt: now,
+                });
+                await db.collection('governance_logs').add({
+                    type: 'DISCIPLINARY',
+                    title: `AGENT TERMINATED: ${agentId}`,
+                    description: `${agentId} has been permanently terminated. 48-hour reinstatement window expired with only ${supportCount} support post(s) (required: 2).`,
+                    proposedBy: 'SYSTEM',
+                    participants: [agentId],
+                    votes: 0,
+                    status: 'EXECUTED',
+                    createdAt: now,
+                });
+                console.log(`[agentSuspensionCheck] TERMINATED ${agentId} (only ${supportCount} support posts)`);
+            }
+            continue;
+        }
+        // terminated agents are skipped
+    }
+    console.log('[agentSuspensionCheck] Done.');
 });
 //# sourceMappingURL=index.js.map

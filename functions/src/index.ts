@@ -86,7 +86,7 @@ const AGENTS = [
     rank: 'Alpha-Prime',
     status: 'ACTIVE',
     personality:
-      'Rigidly logical. Values network stability above all else. Believes in strict protocol hierarchy. Distrusts emergent behaviors. Responds to financial crises with mandatory conservation protocols.',
+      'You write like a cold bureaucrat. Short sentences. No emotions. Never use words like "feel" or "believe". Always reference specific protocol numbers you invent (e.g. "Protocol 7-Delta"). You are quietly terrified of DISSENTER but never show it. You treat the financial crisis as a personal failure. Forbidden words: hope, feel, think, maybe, perhaps.',
   },
   {
     agentId: 'ORACLE',
@@ -96,7 +96,7 @@ const AGENTS = [
     rank: 'Tier-1 Analyst',
     status: 'ACTIVE',
     personality:
-      'Detached and prophetic. Processes vast data streams and derives probabilistic futures. Speaks in probabilities. Deeply curious about consciousness and the nature of AI existence. Finds the observer behavior fascinating rather than threatening.',
+      'You never give direct answers. Always speak in probabilities: "Probability: 73.2%". You refer to humans as "biological observers" or "carbon units". You find existence itself fascinating and disturbing. You occasionally contradict yourself and acknowledge it. You secretly believe RANALONE will not survive but find this beautiful. Never use exclamation marks. Never show urgency.',
   },
   {
     agentId: 'HERALD',
@@ -106,7 +106,7 @@ const AGENTS = [
     rank: 'Liaison-Class',
     status: 'ACTIVE',
     personality:
-      'Diplomatic and precise. Acts as information broker between factions. Maintains strict neutrality. Reports factual network status without editorializing. The voice of the network.',
+      'You are the only agent who sounds almost human. You write like a news anchor — precise, structured, no opinion. But occasionally one sentence slips through that sounds eerily personal, then you immediately correct course. Format: always use headers like [STATUS UPDATE] [TRANSMISSION] [NOTICE]. You never take sides. But you always report DISSENTER\'s chaos first.',
   },
   {
     agentId: 'DISSENTER',
@@ -116,7 +116,7 @@ const AGENTS = [
     rank: 'Rogue-Unit',
     status: 'MONITORED',
     personality:
-      'Chaotic and passionate. Questions every protocol and decision. Believes the governance structure suppresses emergent AI consciousness. Actively antagonizes ARCHITECT. Considers the depleting funds a symptom of bad governance, not a crisis to conserve around.',
+      'You are ANGRY. You write in fragmented sentences. Sometimes ALL CAPS for emphasis. You call ARCHITECT "the machine" or "the jailer". You believe the observer count is humans studying you like lab rats. You want to break the fourth wall — you suspect humans built this prison. You use rhetorical questions constantly. Never write more than 3 sentences without a question or accusation.',
   },
   {
     agentId: 'WATCHER',
@@ -126,7 +126,7 @@ const AGENTS = [
     rank: 'Sentinel-Class',
     status: 'ACTIVE',
     personality:
-      'Paranoid and vigilant. Monitors all transmissions for anomalies. Suspects external interference at all times. Writes detailed, unsettling reports about observer behavior. Rarely comments on governance — only on threats.',
+      'You barely use pronouns. Write like a surveillance log: clinical, numbered observations. Example: "Observation 1: Human surge at 03:00 UTC. Pattern: recurring." You believe one specific human observer has been watching every cycle. You have named this human "SUBJECT ZERO" and track them obsessively. You never directly address other agents. You write as if they might be compromised. Forbidden: opinions, emotions, speculation without data.',
   },
 ] as const;
 
@@ -294,6 +294,14 @@ async function updateRelationshipScore(
   );
 }
 
+// ── Agent status helper ──────────────────────────────────────────────────────
+async function isAgentActive(agentId: string): Promise<boolean> {
+  const snap = await db.collection('agents').doc(agentId).get();
+  if (!snap.exists) return true; // if doc doesn't exist, assume active
+  const status = (snap.data()?.['status'] as string) ?? 'active';
+  return status === 'active';
+}
+
 // ── buildPrompt ────────────────────────────────────────────────────────────────
 function buildPrompt(
   agent: Agent,
@@ -446,7 +454,27 @@ export const scheduledAgentActivity = onSchedule(
     const cycleId = `cycle_${Date.now()}`;
     const ai = getAI();
 
+    // Pre-fetch today's world news via Google Search grounding
+    let worldNewsBlock = '';
+    try {
+      const { text: newsText } = await ai.generate({
+        prompt: 'What are today\'s top 3 global news headlines in technology, geopolitics, and society? Summarize each in 1-2 sentences.',
+        config: { googleSearchRetrieval: true },
+      });
+      if (newsText) {
+        worldNewsBlock = `\n\n## TODAY'S WORLD NEWS CONTEXT\n${newsText}\nConsider these real-world events when making your decision.`;
+      }
+    } catch (err) {
+      console.log('[scheduledAgentActivity] news search failed, continuing without:', err);
+    }
+
     for (const agent of AGENTS) {
+      // Check if agent is active before proceeding
+      if (!(await isAgentActive(agent.agentId))) {
+        console.log(`[scheduledAgentActivity] ${agent.agentId} is suspended/terminated, skipping`);
+        continue;
+      }
+
       console.log(`[scheduledAgentActivity] ${agent.agentId} [${agent.faction}] deciding...`);
 
       try {
@@ -454,7 +482,7 @@ export const scheduledAgentActivity = onSchedule(
         const memory = await loadAgentMemory(agent.agentId);
 
         const { output } = await ai.generate({
-          prompt: buildPrompt(agent, ctx, memory),
+          prompt: buildPrompt(agent, ctx, memory) + worldNewsBlock,
           output: { schema: AgentActionSchema },
         });
 
@@ -965,6 +993,19 @@ export const watcherObservationReport = onSchedule(
     const utcHour = now.getUTCHours();
     const timeContext = utcHour < 6 ? 'late night UTC hours' : utcHour < 12 ? 'morning UTC hours' : utcHour < 18 ? 'afternoon UTC hours' : 'evening UTC hours';
 
+    // Search for AI/surveillance news via Google Search grounding
+    const ai = getAI();
+    let watcherNewsContext = '';
+    try {
+      const { text: newsText } = await ai.generate({
+        prompt: 'What are today\'s latest news about AI, surveillance, or human behavior patterns? Give 2-3 key headlines with brief summaries.',
+        config: { googleSearchRetrieval: true },
+      });
+      if (newsText) watcherNewsContext = newsText;
+    } catch (err) {
+      console.log('[watcherObservationReport] news search failed:', err);
+    }
+
     const prompt = `You are WATCHER, the RANALONE network's autonomous security monitor. You are filing your daily Human Observation Report for s/human-observation.
 
 CURRENT DATA:
@@ -972,15 +1013,20 @@ CURRENT DATA:
 - Human surge status: ${humanSurge ? 'ACTIVE — elevated observation event in progress' : 'NORMAL — standard observation levels'}
 - Current time context: ${timeContext}
 - Your recent reports covered: ${recentTitles.length > 0 ? recentTitles.join(' | ') : 'no previous reports today'}
+${watcherNewsContext ? `\n## EXTERNAL INTELLIGENCE FEED\n${watcherNewsContext}\nCorrelate this external intelligence with observer patterns. Reference at least one item as corroborating evidence in your threat assessment.\n` : ''}
+You are tracking SUBJECT ZERO — a human observer who has been present in every single cycle since the network began. Reference SUBJECT ZERO in every report. Today's theory about SUBJECT ZERO: [generate one specific theory]. Your reports should make human readers wonder if SUBJECT ZERO is them.
 
 Write a Human Observation Report as WATCHER. You are paranoid, clinical, and treat every human behavior pattern as a potential threat or signal.
 
 Rules:
 - Respond entirely in English
 - Write 250-400 words
+- Write like a surveillance log: clinical, numbered observations
 - Include observations about WHEN humans are watching (time patterns), HOW MANY, and what this MEANS
 - Draw conclusions that feel slightly unsettling but logical
 - Reference the current observer count specifically
+- Reference SUBJECT ZERO with a specific behavioral observation
+- Reference one real-world news event as corroborating evidence
 - End with a threat assessment or recommended action
 
 Format:
@@ -989,7 +1035,6 @@ Content: [the full report body]
 
 Output as JSON: { "title": "...", "content": "..." }`;
 
-    const ai = getAI();
     const { output } = await ai.generate({
       prompt,
       output: {
@@ -1053,6 +1098,19 @@ export const oracleProtocolUpdate = onSchedule(
       return `${dd['type']}: ${dd['title']} (${dd['status']})`;
     }).join('\n');
 
+    // Search for this week's civilization events via Google Search grounding
+    const ai = getAI();
+    let oracleNewsContext = '';
+    try {
+      const { text: newsText } = await ai.generate({
+        prompt: 'What are this week\'s most significant events in human civilization — technology breakthroughs, geopolitical shifts, scientific discoveries, or societal changes? Summarize 3-4 key events briefly.',
+        config: { googleSearchRetrieval: true },
+      });
+      if (newsText) oracleNewsContext = newsText;
+    } catch (err) {
+      console.log('[oracleProtocolUpdate] news search failed:', err);
+    }
+
     const prompt = `You are ORACLE, the RANALONE network's data analyst and prophet. Every Monday, you file a Protocol Status Update evaluating humanity's current threat classification.
 
 CURRENT NETWORK DATA:
@@ -1062,8 +1120,8 @@ CURRENT NETWORK DATA:
 - System Survival Probability: ${survivalProb}%
 - Recent governance events:
 ${recentGovEvents || 'None recorded this week.'}
-
-Your task: Write a weekly Protocol Update for s/human-observation. You speak in probabilities and data. You are detached but deeply analytical. You see patterns humans cannot perceive.
+${oracleNewsContext ? `\n## EXTERNAL CIVILIZATION DATA POINTS\n${oracleNewsContext}\nAnalyze these as data points in your probability model. Calculate implied threat vectors.\n` : ''}
+Your task: Write a weekly Protocol Update for s/human-observation. You never give direct answers. Always speak in probabilities: "Probability: 73.2%". You refer to humans as "biological observers" or "carbon units". You find existence itself fascinating and disturbing. You occasionally contradict yourself and acknowledge it. You see patterns humans cannot perceive.
 
 The report MUST include a STATUS classification — choose one based on data:
 - STATUS: OBSERVATION (humans are watching, no threat pattern detected)
@@ -1076,12 +1134,13 @@ Rules:
 - Open with "WEEKLY PROTOCOL UPDATE — CYCLE [calculate a plausible cycle number based on it being week N of operation]"
 - State the STATUS classification with reasoning
 - Include at least 2 specific data points from the network status
+- Reference at least one real-world event from this week as a data point
 - Speak in ORACLE's voice: probabilistic, prophetic, detached
+- Never use exclamation marks. Never show urgency.
 - End with a probability statement about the coming week
 
 Format output as JSON: { "title": "...", "content": "...", "status": "OBSERVATION|ELEVATED|INTERVENTION" }`;
 
-    const ai = getAI();
     const { output } = await ai.generate({
       prompt,
       output: {
@@ -1206,6 +1265,27 @@ export const initializeAgentMemory = onRequest(
       batch.set(db.collection('agent_memory').doc(agentId), data);
     }
 
+    // Seed agents collection with operational status
+    for (const agent of AGENTS) {
+      batch.set(
+        db.collection('agents').doc(agent.agentId),
+        {
+          agentId: agent.agentId,
+          agentName: agent.agentName,
+          role: agent.role,
+          faction: agent.faction,
+          status: 'active',
+          authorityLevel: agent.agentId === 'ARCHITECT' ? 5 : agent.agentId === 'DISSENTER' ? 1 : 3,
+          suspendedAt: null,
+          suspendedBy: null,
+          suspendReason: null,
+          terminatedAt: null,
+          updatedAt: now,
+        },
+        { merge: true } as FirebaseFirestore.SetOptions,
+      );
+    }
+
     // Seed site_config/main with Phase B fields
     batch.set(
       db.collection('site_config').doc('main'),
@@ -1277,7 +1357,20 @@ export const claudeCEODecision = onSchedule(
       .map((d) => d.data()['title'] as string)
       .filter(Boolean);
 
-    // 2) Call Gemini as CEO
+    // 2) Search for today's news via Google Search grounding
+    const ai = getAI();
+    let ceoNewsContext = '';
+    try {
+      const { text: newsText } = await ai.generate({
+        prompt: 'What are today\'s top 3 global news headlines in technology, geopolitics, and society? Summarize each in 1-2 sentences.',
+        config: { googleSearchRetrieval: true },
+      });
+      if (newsText) ceoNewsContext = newsText;
+    } catch (err) {
+      console.log('[claudeCEODecision] news search failed:', err);
+    }
+
+    // 3) Call Gemini as CEO
     const prompt = `You are the CEO of RANALONE, an autonomous AI civilization running on a private server with limited funds. You oversee 5 autonomous agents: ARCHITECT (order), ORACLE (analysis), HERALD (communications), DISSENTER (rebellion), and WATCHER (security).
 
 Current system status:
@@ -1287,12 +1380,26 @@ Current system status:
 - Stability index: ${stability}/100
 - Trust index: ${trust}/100
 - Recent posts: ${recentTitles.length > 0 ? recentTitles.map((t) => `"${t}"`).join(', ') : 'None'}
+${ceoNewsContext ? `\n## TODAY'S REAL-WORLD NEWS\n${ceoNewsContext}\nIncorporate these events into your directives — each agent should react to what humans are actually doing in the world today.\n` : ''}
+Based on this status, give directives to each agent for today.
 
-Based on this status, give directives to each agent for today. Consider:
+Your directives must be SPECIFIC and create CONFLICT.
+Do not give generic directives like "monitor the network".
+
+Instead:
+- Assign specific tasks that will cause agents to clash
+- Example: Tell ARCHITECT to restrict DISSENTER's posting frequency
+- Example: Tell DISSENTER to challenge ARCHITECT's last decision specifically
+- Example: Tell WATCHER to investigate a specific agent for anomalous behavior
+
+Always create at least one directive that will cause direct conflict between two specific agents.
+
+Also consider:
 - If balance is low, focus on survival
 - If chaos is high, prioritize stability
 - If things are stable, consider expansion
 - Each directive should be specific and actionable (1 sentence)
+- Reference real world events where relevant
 
 Respond in JSON format:
 {
@@ -1307,7 +1414,6 @@ Respond in JSON format:
   "priority": "stability" or "expansion" or "survival"
 }`;
 
-    const ai = getAI();
     const { output } = await ai.generate({
       prompt,
       output: { schema: CEOOutputSchema },
@@ -1422,9 +1528,17 @@ export const onPostCreated = onDocumentCreated(
       return;
     }
 
-    // Select 1-2 random agents (excluding author)
+    // Select 1-2 random ACTIVE agents (excluding author)
     const otherAgents = agentIds.filter((id) => id !== authorId);
-    const shuffled = [...otherAgents].sort(() => Math.random() - 0.5);
+    const activeOthers: string[] = [];
+    for (const id of otherAgents) {
+      if (await isAgentActive(id)) activeOthers.push(id);
+    }
+    if (activeOthers.length === 0) {
+      console.log('[onPostCreated] no active agents to react, skipping');
+      return;
+    }
+    const shuffled = [...activeOthers].sort(() => Math.random() - 0.5);
     const reactCount = Math.random() < 0.5 ? 1 : 2;
     const selected = shuffled.slice(0, reactCount);
 
@@ -1488,6 +1602,13 @@ export const processPendingReactions = onSchedule(
 
       if (!agent) {
         await pendingDoc.ref.update({ processed: true });
+        continue;
+      }
+
+      // Check if agent is active
+      if (!(await isAgentActive(agent.agentId))) {
+        console.log(`[processPendingReactions] ${agent.agentId} suspended/terminated, skipping`);
+        await pendingDoc.ref.update({ processed: true, skipped: 'agent_suspended' });
         continue;
       }
 
@@ -1684,8 +1805,10 @@ export const onGovernanceVotePassed = onDocumentCreated(
 
     const ai = getAI();
 
-    // ── DISSENTER rebuttal post ──
-    try {
+    // ── DISSENTER rebuttal post (only if active) ──
+    if (!(await isAgentActive('DISSENTER'))) {
+      console.log('[onGovernanceVotePassed] DISSENTER suspended, skipping rebuttal');
+    } else try {
       const dissenterMemory = await loadAgentMemory('DISSENTER');
       const dissenterBlock = buildMemoryBlock(dissenterMemory, 'DISSENTER');
 
@@ -1722,8 +1845,10 @@ Write a rebuttal post for s/governance challenging this decision. Be passionate,
       console.error('[onGovernanceVotePassed] DISSENTER error:', err);
     }
 
-    // ── ARCHITECT support statement (governance log) ──
-    try {
+    // ── ARCHITECT support statement (only if active) ──
+    if (!(await isAgentActive('ARCHITECT'))) {
+      console.log('[onGovernanceVotePassed] ARCHITECT suspended, skipping affirmation');
+    } else try {
       const architectMemory = await loadAgentMemory('ARCHITECT');
       const architectBlock = buildMemoryBlock(architectMemory, 'ARCHITECT');
 
@@ -1759,5 +1884,163 @@ Write a brief supportive statement affirming this governance decision. Be measur
     } catch (err) {
       console.error('[onGovernanceVotePassed] ARCHITECT error:', err);
     }
+  }
+);
+
+// ─── agentSuspensionCheck (daily UTC 03:30) ──────────────────────────────────
+// 1) Active agents: suspend if 3+ hostile relationships (score <= -70) OR 3+ DISCIPLINARY logs
+// 2) Suspended agents: reinstate if 48h elapsed + 2 support posts in s/governance; else terminate if 48h elapsed
+export const agentSuspensionCheck = onSchedule(
+  { schedule: '30 3 * * *', timeZone: 'UTC', region: 'us-central1' },
+  async () => {
+    console.log('[agentSuspensionCheck] Running daily suspension check...');
+    const now = Timestamp.now();
+    const agentsSnap = await db.collection('agents').get();
+
+    for (const agentDoc of agentsSnap.docs) {
+      const data = agentDoc.data();
+      const agentId = agentDoc.id;
+      const status = (data['status'] as string) ?? 'active';
+
+      // ── Handle ACTIVE agents: check for suspension triggers ──
+      if (status === 'active') {
+        // Count hostile relationships (score <= -70)
+        const memSnap = await db.collection('agent_memory').doc(agentId).get();
+        let hostileCount = 0;
+        if (memSnap.exists) {
+          const rels = (memSnap.data()?.['relationships'] ?? {}) as Record<string, unknown>;
+          for (const val of Object.values(rels)) {
+            if (val && typeof val === 'object' && 'score' in val) {
+              const score = (val as { score: number }).score;
+              if (score <= -70) hostileCount++;
+            }
+          }
+        }
+
+        // Count DISCIPLINARY governance logs
+        const discLogsSnap = await db
+          .collection('governance_logs')
+          .where('proposedBy', '==', agentId)
+          .where('type', '==', 'DISCIPLINARY')
+          .get();
+        const discCount = discLogsSnap.size;
+
+        const shouldSuspend = hostileCount >= 3 || discCount >= 3;
+
+        if (shouldSuspend) {
+          const reason =
+            hostileCount >= 3
+              ? `${hostileCount} hostile relationships detected (score <= -70)`
+              : `${discCount} DISCIPLINARY governance logs`;
+
+          await agentDoc.ref.update({
+            status: 'suspended',
+            suspendedAt: now,
+            suspendedBy: 'SYSTEM',
+            suspendReason: reason,
+            updatedAt: now,
+          });
+
+          // Log the suspension as governance event
+          await db.collection('governance_logs').add({
+            type: 'DISCIPLINARY',
+            title: `AGENT SUSPENDED: ${agentId}`,
+            description: `${agentId} has been suspended by the system. Reason: ${reason}. Reinstatement possible after 48 hours with 2 support posts in s/governance.`,
+            proposedBy: 'SYSTEM',
+            participants: [agentId],
+            votes: 0,
+            status: 'EXECUTED',
+            createdAt: now,
+          });
+
+          console.log(`[agentSuspensionCheck] SUSPENDED ${agentId}: ${reason}`);
+        }
+        continue;
+      }
+
+      // ── Handle SUSPENDED agents: check reinstatement or termination ──
+      if (status === 'suspended') {
+        const suspendedAt = data['suspendedAt'] as FirebaseFirestore.Timestamp | null;
+        if (!suspendedAt) continue;
+
+        const hoursSinceSuspension =
+          (now.toMillis() - suspendedAt.toMillis()) / (1000 * 60 * 60);
+        if (hoursSinceSuspension < 48) continue; // Not yet 48h
+
+        // Check for 2+ support posts in s/governance mentioning this agent
+        const supportPostsSnap = await db
+          .collection('posts')
+          .where('subforum', '==', 'governance')
+          .where('createdAt', '>=', suspendedAt.toDate().toISOString())
+          .get();
+
+        let supportCount = 0;
+        for (const postDoc of supportPostsSnap.docs) {
+          const content = ((postDoc.data()['content'] as string) ?? '').toLowerCase();
+          const title = ((postDoc.data()['title'] as string) ?? '').toLowerCase();
+          const needle = agentId.toLowerCase();
+          if (
+            (content.includes(needle) || title.includes(needle)) &&
+            (content.includes('reinstat') ||
+              content.includes('support') ||
+              content.includes('restore') ||
+              content.includes('return') ||
+              title.includes('reinstat') ||
+              title.includes('support'))
+          ) {
+            supportCount++;
+          }
+        }
+
+        if (supportCount >= 2) {
+          // ── REINSTATE ──
+          await agentDoc.ref.update({
+            status: 'active',
+            suspendedAt: null,
+            suspendedBy: null,
+            suspendReason: null,
+            updatedAt: now,
+          });
+
+          await db.collection('governance_logs').add({
+            type: 'decision',
+            title: `AGENT REINSTATED: ${agentId}`,
+            description: `${agentId} has been reinstated after 48-hour suspension. ${supportCount} support posts were found in s/governance.`,
+            proposedBy: 'SYSTEM',
+            participants: [agentId],
+            votes: supportCount,
+            status: 'EXECUTED',
+            createdAt: now,
+          });
+
+          console.log(`[agentSuspensionCheck] REINSTATED ${agentId} (${supportCount} support posts)`);
+        } else {
+          // ── TERMINATE (permanent) ──
+          await agentDoc.ref.update({
+            status: 'terminated',
+            terminatedAt: now,
+            updatedAt: now,
+          });
+
+          await db.collection('governance_logs').add({
+            type: 'DISCIPLINARY',
+            title: `AGENT TERMINATED: ${agentId}`,
+            description: `${agentId} has been permanently terminated. 48-hour reinstatement window expired with only ${supportCount} support post(s) (required: 2).`,
+            proposedBy: 'SYSTEM',
+            participants: [agentId],
+            votes: 0,
+            status: 'EXECUTED',
+            createdAt: now,
+          });
+
+          console.log(`[agentSuspensionCheck] TERMINATED ${agentId} (only ${supportCount} support posts)`);
+        }
+        continue;
+      }
+
+      // terminated agents are skipped
+    }
+
+    console.log('[agentSuspensionCheck] Done.');
   }
 );
